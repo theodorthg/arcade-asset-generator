@@ -106,7 +106,7 @@
         <label for="zoom">Zoom <input type="range" id="zoom" min="1" max="6" value="3"></label>
         <span class="spacer"></span>
         <button id="exportAll">Komplettes Set als Code</button>
-        <button class="primary" id="exportProject">Als MakeCode-Projekt (.mkcd)</button>
+        <button class="primary" id="exportProject">Als MakeCode-Projekt speichern</button>
     </div>
 
     <nav class="tabs" id="tabs" aria-label="Kategorien"></nav>
@@ -144,6 +144,9 @@
 <script>
 (function () {
     const G = AssetGen, S = SoundGen;
+    // Im Claude-Artifact laufen Downloads über die "downloads"-Freigabe; anderswo per Link.
+    const downloadsReady = (window.claude && typeof window.claude.use === 'function')
+        ? window.claude.use('downloads').catch(() => null) : Promise.resolve(null);
     const $ = id => document.getElementById(id);
     const state = {
         tab: 'bg', seed: '1', biome: 'grass', zoom: 3,
@@ -470,7 +473,11 @@
         imgs.forEach(p => { ctx.drawImage(toCanvas(p, 1), x, pad); x += p.w + pad; });
         const img = new Image(); img.src = cv.toDataURL('image/png'); img.alt = 'PNG-Sheet';
         img.style.width = Math.min(w * 2, 1000) + 'px'; img.style.maxWidth = '100%';
-        $('sheet').innerHTML = '<p class="hint">Rechtsklick auf das Bild → „Bild speichern unter …“ (Originalgröße ' + w + '×' + h + ' px, transparent).</p>';
+        $('sheet').innerHTML = '<p class="hint">PNG in Originalgröße ' + w + '×' + h + ' px, transparent. Speichern per Knopf oder Rechtsklick → „Bild speichern unter …“.</p>';
+        const save = document.createElement('button'); save.className = 'primary'; save.textContent = 'PNG speichern';
+        save.style.margin = '0 0 8px';
+        save.onclick = () => cv.toBlob(b => saveFile(state.tab + '-' + state.biome + '-' + state.seed + '.png', b), 'image/png');
+        $('sheet').appendChild(save);
         $('sheet').appendChild(img);
     }
     function exportAll() {
@@ -493,20 +500,109 @@
         toast('Komplettes Set erzeugt – jetzt „Code kopieren“');
     }
 
-    function exportProject() {
-        const p = G.makecodeProject({ seed: state.seed, biome: state.biome, char: state.char, boss: state.boss, name: 'pixel-assets-' + state.biome + '-' + state.seed });
+    // MakeCode-Projekt als PNG: die Projektdaten stecken in den unteren Bits der Pixel –
+    // dasselbe Verfahren wie „Herunterladen“ in MakeCode Arcade (pxt Util.encodeBlobAsync).
+    const IMAGE_MAGIC = 0x59347a7d, IMAGE_HEADER_SIZE = 36;
+    function encodeBlobIntoCanvas(canvas, blob) {
+        const neededBytes = IMAGE_HEADER_SIZE + blob.length;
+        const usableBytes = (canvas.width * canvas.height - 1) * 3;
+        let bpp = 1;
+        while (bpp < 4) { if (usableBytes * bpp >= neededBytes * 8) break; bpp++; }
+        const imgCapacity = (usableBytes * bpp) >> 3;
+        const missing = neededBytes - imgCapacity;
+        let addedLines = 0;
+        const addedOffset = canvas.width * canvas.height * 4;
+        if (missing > 0) {
+            addedLines = Math.ceil(missing / (canvas.width * 3));
+            const c2 = document.createElement('canvas');
+            c2.width = canvas.width; c2.height = canvas.height + addedLines;
+            c2.getContext('2d').drawImage(canvas, 0, 0);
+            canvas = c2;
+        }
+        const header = new Uint8Array(IMAGE_HEADER_SIZE);
+        [IMAGE_MAGIC, blob.length, addedLines].forEach((v, i) => { for (let k = 0; k < 4; k++) header[i * 4 + k] = (v >>> (8 * k)) & 255; });
+        function encode(img, ptr, bpp, data) {
+            let shift = 0, dp = 0, v = data[dp++];
+            const mask = (1 << bpp) - 1;
+            let keepGoing = true;
+            while (keepGoing) {
+                let bits = (v >> shift) & mask;
+                const left = 8 - shift;
+                if (left <= bpp) {
+                    if (dp >= data.length) { if (left == 0) break; else keepGoing = false; }
+                    v = data[dp++];
+                    bits |= (v << left) & mask;
+                    shift = bpp - left;
+                } else shift += bpp;
+                img[ptr] = ((img[ptr] & ~mask) | bits) & 0xff;
+                ptr++;
+                if ((ptr & 3) == 3) img[ptr++] = 0xff;
+            }
+            return ptr;
+        }
+        const ctx = canvas.getContext('2d');
+        const imgdat = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        encode(imgdat.data, 0, 1, [bpp]);
+        let ptr = encode(imgdat.data, 4, bpp, header);
+        if (addedLines == 0) ptr = encode(imgdat.data, ptr, bpp, blob);
+        else {
+            const firstChunk = imgCapacity - header.length;
+            ptr = encode(imgdat.data, ptr, bpp, blob.slice(0, firstChunk));
+            ptr = encode(imgdat.data, addedOffset, 8, blob.slice(firstChunk));
+        }
+        ptr |= 3;
+        while (ptr < imgdat.data.length) { imgdat.data[ptr] = 0xff; ptr += 4; }
+        ctx.putImageData(imgdat, 0, 0);
+        return canvas;
+    }
+    // Vorschaubild (320×240): Hintergrund, Boden, Held, Münze – darunter die Projektdaten
+    function projectCover() {
+        const bg = G.background(state.biome, state.seed), t = G.tileset(state.biome, state.seed);
+        const ch = G.character(state.char), it = G.items(state.seed);
+        const scene = bg.sky.clone().blit(bg.far, 0, 0).blit(bg.near, 0, 0);
+        for (let x = 0; x < 160; x += 16) { scene.blit(t.groundTop, x, 88); scene.blit(t.ground, x, 104); }
+        scene.blit(t.platform, 96, 56).blit(t.platform, 112, 56).blit(t.deco, 16, 72).blit(t.goal, 136, 72);
+        scene.blit(ch.idle[0], 40, 72).blit(it.coin[0], 108, 44).blit(it.coin[0], 120, 44);
+        const small = toCanvas(scene, 1), cv = document.createElement('canvas');
+        cv.width = 320; cv.height = 240;
+        const ctx = cv.getContext('2d'); ctx.imageSmoothingEnabled = false; ctx.drawImage(small, 0, 0, 320, 240);
+        return cv;
+    }
+    // Speichert eine Datei: im Artifact über den Bestätigungsdialog, sonst als normaler Download.
+    async function saveFile(filename, data) {
+        const dl = await downloadsReady;
+        if (dl) {
+            try { await dl.save({ filename, data }); toast('Gespeichert: ' + filename); return true; }
+            catch (e) {
+                if (e && e.code === 'declined') toast('Speichern abgebrochen');
+                else if (e && e.code === 'rate_limited') toast('Bitte kurz warten und erneut versuchen');
+                else toast('Speichern hier nicht möglich (' + ((e && e.code) || 'unbekannt') + ')');
+                return false;
+            }
+        }
         try {
             const a = document.createElement('a');
-            a.href = URL.createObjectURL(new Blob([p.mkcd], { type: 'application/octet-stream' }));
-            a.download = p.name + '.mkcd';
-            document.body.appendChild(a); a.click(); a.remove();
-        } catch (e) { /* Download blockiert – Hinweis unten */ }
+            a.href = URL.createObjectURL(data instanceof Blob ? data : new Blob([data]));
+            a.download = filename; document.body.appendChild(a); a.click(); a.remove();
+            return true;
+        } catch (e) { return false; }
+    }
+
+    async function exportProject() {
+        const p = G.makecodeProject({ seed: state.seed, biome: state.biome, char: state.char, boss: state.boss, name: 'pixel-assets-' + state.biome + '-' + state.seed });
+        // PNG mit eingebettetem Projekt: im Claude-Artifact erlaubt und von MakeCode direkt importierbar
+        const fileName = p.name + '.png';
+        renderProjectInfo(p, fileName);
+        const canvas = encodeBlobIntoCanvas(projectCover(), new TextEncoder().encode(p.mkcd));
+        canvas.toBlob(blob => saveFile(fileName, blob), 'image/png');
+    }
+    function renderProjectInfo(p, fileName) {
         const list = (title, names, fn) => '<div><strong>' + title + ' (' + names.length + ')</strong><div class="asset-list">' +
             names.map(n => '<code>' + fn(n) + '</code>').join('') + '</div></div>';
         const tick = '&#96;';
-        $('sheet').innerHTML = '<div class="project-info"><h3>MakeCode-Projekt „' + p.name + '.mkcd“</h3>' +
+        $('sheet').innerHTML = '<div class="project-info"><h3>MakeCode-Projekt „' + fileName + '“</h3>' +
             '<ol><li>Auf <a href="https://arcade.makecode.com" target="_blank" rel="noopener">arcade.makecode.com</a> <strong>Importieren → Datei importieren</strong> wählen.</li>' +
-            '<li>Die heruntergeladene <code>.mkcd</code>-Datei auswählen – es entsteht ein neues Projekt mit Demo-Level.</li>' +
+            '<li>Die gespeicherte Datei <code>' + fileName + '</code> auswählen – das Bild enthält das ganze Projekt, es entsteht ein neues Projekt mit Demo-Level.</li>' +
             '<li>Alle Grafiken stehen im Tab <strong>Assets</strong> und in jedem Bild-Block unter <strong>Meine Assets</strong> zur Auswahl.</li></ol>' +
             '<p class="hint">Startet kein Download (z. B. in einer eingebetteten Vorschau), die Seite direkt öffnen: ' +
             '<a href="https://theodorthg.github.io/arcade-asset-generator/" target="_blank" rel="noopener">theodorthg.github.io/arcade-asset-generator</a></p>' +
@@ -515,7 +611,6 @@
             list('Kacheln', p.names.tiles, n => 'assets.tile' + tick + n + tick) +
             list('Tilemap', p.names.tilemaps, n => 'tilemap' + tick + n + tick) + '</div>';
         $('sheet').scrollIntoView({ behavior: 'smooth', block: 'start' });
-        toast('MakeCode-Projekt erzeugt');
     }
 
     const hash = location.hash.slice(1);

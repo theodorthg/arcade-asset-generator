@@ -6,8 +6,9 @@ Prozedurale Pixelgrafik und Sounds für MakeCode Arcade (16-Farben-Palette): Par
 Tiles, Spielfigur, Gegner, Boss, Items, Soundeffekte und Melodien. Gleicher Seed = gleiches Ergebnis.
 
 - `index.html` – Website (Vorschau, Einstellungen, Code kopieren, PNG-Sheet, komplettes Set als Code,
-  **MakeCode-Projekt (.mkcd)** mit benannten Assets: Bilder, Animationen, Kacheln und ein Demo-Level
-  erscheinen im Assets-Tab und in der Bild-Auswahl der Blöcke – importieren über *Importieren → Datei importieren*)
+  **MakeCode-Projekt als PNG** (wie „Herunterladen“ in Arcade: das Projekt steckt im Bild) mit benannten
+  Assets: Bilder, Animationen, Kacheln und ein Demo-Level erscheinen im Assets-Tab und in der Bild-Auswahl
+  der Blöcke – importieren über *Importieren → Datei importieren*)
 - `assetgen.js` – Grafik-Kern, läuft im Browser und in Node (`require('./assetgen.js')`)
 - `soundgen.js` – Sound-Kern (Effekte → `music.createSoundEffect`, Melodien → `music.Melody`)
 - `tools/sheet.js` – rendert eine Übersicht als PNG: `node tools/sheet.js out.png <seed>`
