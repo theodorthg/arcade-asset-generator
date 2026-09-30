@@ -78,6 +78,11 @@
     textarea { width: 100%; height: 240px; font: 11.5px/1.35 var(--mono); resize: vertical; background: var(--ground); }
     .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
     #sheet { margin-top: 12px; }
+    .project-info { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; display: grid; gap: 8px; }
+    .project-info h3 { font: 500 15px var(--display); margin: 0; }
+    .project-info ol { margin: 0; padding-left: 20px; }
+    .asset-list { display: flex; flex-wrap: wrap; gap: 4px; }
+    .asset-list code { font: 11.5px var(--mono); background: var(--ground); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; }
     #sheet img { image-rendering: pixelated; border: 1px solid var(--line); background: repeating-conic-gradient(var(--line) 0% 25%, transparent 0% 50%) 0 0 / 12px 12px; }
     footer { color: var(--muted); font-size: 13px; padding-block: 24px 32px; }
     .toast { position: fixed; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--ground); padding: 8px 14px; border-radius: 6px; opacity: 0; transition: opacity .2s; pointer-events: none; }
@@ -89,7 +94,7 @@
     <header>
         <div>
             <h1>Arcade Asset Generator</h1>
-            <p>Pixelgrafik und Sounds für MakeCode Arcade, prozedural erzeugt. Gleicher Seed = gleiches Ergebnis. Der Code lässt sich direkt in die JavaScript-Ansicht einfügen.</p>
+            <p>Pixelgrafik und Sounds für MakeCode Arcade, prozedural erzeugt. Gleicher Seed = gleiches Ergebnis. Export als Code für die JavaScript-Ansicht oder als MakeCode-Projekt mit benannten Assets für die Block-Ansicht.</p>
         </div>
         <div class="palette" id="palette" aria-label="MakeCode-Palette, Farben 1 bis f"></div>
     </header>
@@ -100,7 +105,8 @@
         <label for="biome">Biom <select id="biome"></select></label>
         <label for="zoom">Zoom <input type="range" id="zoom" min="1" max="6" value="3"></label>
         <span class="spacer"></span>
-        <button class="primary" id="exportAll">Komplettes Set als Code</button>
+        <button id="exportAll">Komplettes Set als Code</button>
+        <button class="primary" id="exportProject">Als MakeCode-Projekt (.mkcd)</button>
     </div>
 
     <nav class="tabs" id="tabs" aria-label="Kategorien"></nav>
@@ -167,6 +173,7 @@
     $('copy').onclick = copyCode;
     $('png').onclick = showPng;
     $('exportAll').onclick = exportAll;
+    $('exportProject').onclick = exportProject;
 
     function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 1600); }
     function copyCode() {
@@ -484,6 +491,31 @@
         $('codeTitle').textContent = 'Komplettes Set (' + Math.round(ts.length / 1024) + ' KB) – Grafiken + Sounds';
         $('code').scrollIntoView({ behavior: 'smooth', block: 'center' });
         toast('Komplettes Set erzeugt – jetzt „Code kopieren“');
+    }
+
+    function exportProject() {
+        const p = G.makecodeProject({ seed: state.seed, biome: state.biome, char: state.char, boss: state.boss, name: 'pixel-assets-' + state.biome + '-' + state.seed });
+        try {
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(new Blob([p.mkcd], { type: 'application/octet-stream' }));
+            a.download = p.name + '.mkcd';
+            document.body.appendChild(a); a.click(); a.remove();
+        } catch (e) { /* Download blockiert – Hinweis unten */ }
+        const list = (title, names, fn) => '<div><strong>' + title + ' (' + names.length + ')</strong><div class="asset-list">' +
+            names.map(n => '<code>' + fn(n) + '</code>').join('') + '</div></div>';
+        const tick = '&#96;';
+        $('sheet').innerHTML = '<div class="project-info"><h3>MakeCode-Projekt „' + p.name + '.mkcd“</h3>' +
+            '<ol><li>Auf <a href="https://arcade.makecode.com" target="_blank" rel="noopener">arcade.makecode.com</a> <strong>Importieren → Datei importieren</strong> wählen.</li>' +
+            '<li>Die heruntergeladene <code>.mkcd</code>-Datei auswählen – es entsteht ein neues Projekt mit Demo-Level.</li>' +
+            '<li>Alle Grafiken stehen im Tab <strong>Assets</strong> und in jedem Bild-Block unter <strong>Meine Assets</strong> zur Auswahl.</li></ol>' +
+            '<p class="hint">Startet kein Download (z. B. in einer eingebetteten Vorschau), die Seite direkt öffnen: ' +
+            '<a href="https://theodorthg.github.io/arcade-asset-generator/" target="_blank" rel="noopener">theodorthg.github.io/arcade-asset-generator</a></p>' +
+            list('Bilder', p.names.images, n => 'assets.image' + tick + n + tick) +
+            list('Animationen', p.names.animations, n => 'assets.animation' + tick + n + tick) +
+            list('Kacheln', p.names.tiles, n => 'assets.tile' + tick + n + tick) +
+            list('Tilemap', p.names.tilemaps, n => 'tilemap' + tick + n + tick) + '</div>';
+        $('sheet').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        toast('MakeCode-Projekt erzeugt');
     }
 
     const hash = location.hash.slice(1);
