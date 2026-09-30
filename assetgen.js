@@ -797,6 +797,11 @@
      * Baut ein MakeCode-Arcade-Projekt mit allen Assets eines Biom/Seed-Sets.
      * Rückgabe: { files: {Dateiname: Inhalt}, mkcd: String (JSON, direkt importierbar), names: {...} }
      */
+    // Erweiterungen, die der Export optional einbinden kann (Name -> pxt.json-Abhängigkeit)
+    const EXTENSIONS = {
+        pixelquest: { label: 'Pixel-Quest-Erweiterung', spec: 'github:theodorthg/pxt-pixelquest#v0.1.1' },
+    };
+
     function makecodeProject(opts) {
         opts = opts || {};
         const seed = opts.seed || '1', biome = opts.biome || 'grass', B = biome;
@@ -901,7 +906,7 @@
             'Alle Bilder, Animationen und Kacheln liegen im Assets-Tab und in der Bild-Galerie „Meine Assets“.\n';
         const files = {
             'pxt.json': JSON.stringify({
-                name, description: 'Assets aus dem Arcade Asset Generator', dependencies: { device: '*' },
+                name, description: 'Assets aus dem Arcade Asset Generator', dependencies: Object.assign({ device: '*' }, opts.extensions || {}),
                 files: ['main.blocks', 'main.ts', 'README.md', 'assets.json', 'images.g.jres', 'images.g.ts', 'tilemap.g.jres', 'tilemap.g.ts'],
                 preferredEditor: 'blocksprj',
             }, null, 4),
@@ -926,7 +931,7 @@
     const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
 
     return {
-        makecodeProject, f4Bytes,
+        makecodeProject, f4Bytes, EXTENSIONS,
         PALETTE, COLOR_NAMES, HEX, DARK, LIGHT, Pix, makeRand, hashSeed,
         BIOMES, ENEMY_TYPES, BIOME_ENEMIES, BOSS_TYPES, HAIR_STYLES, HATS, CHAR_DEFAULTS,
         background, tileset, character, randomCharacter, enemy, boss, items,
