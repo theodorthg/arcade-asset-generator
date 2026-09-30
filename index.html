@@ -1,0 +1,493 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>Arcade Asset Generator</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Pixelify+Sans:wght@500;700&family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@400&display=swap">
+<style>
+    :root {
+        color-scheme: light;
+        --ground: #f2f0f5; --surface: #ffffff; --ink: #1b1622; --muted: #665d73; --line: #dcd6e4;
+        --accent: #1b7f86; --accent-ink: #ffffff; --accent-soft: #d9eff0;
+        --stage: #1d1824; --stage-ink: #cfc6dc; --stage-grid: #2a2333;
+        --display: "Pixelify Sans", "Courier New", monospace;
+        --body: "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
+        --mono: "JetBrains Mono", ui-monospace, "Cascadia Mono", monospace;
+    }
+    @media (prefers-color-scheme: dark) {
+        :root:not([data-theme="light"]) {
+            color-scheme: dark;
+            --ground: #131018; --surface: #1c1822; --ink: #efeaf6; --muted: #a59db2; --line: #332c3d;
+            --accent: #4cc3c9; --accent-ink: #0e1a1b; --accent-soft: #173537;
+            --stage: #0d0b11; --stage-ink: #b9b0c6; --stage-grid: #1c1823;
+        }
+    }
+    :root[data-theme="dark"] {
+        color-scheme: dark;
+        --ground: #131018; --surface: #1c1822; --ink: #efeaf6; --muted: #a59db2; --line: #332c3d;
+        --accent: #4cc3c9; --accent-ink: #0e1a1b; --accent-soft: #173537;
+        --stage: #0d0b11; --stage-ink: #b9b0c6; --stage-grid: #1c1823;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--ground); color: var(--ink); font: 15px/1.5 var(--body); }
+    .wrap { max-width: 1120px; margin: 0 auto; padding-inline: 16px; }
+    header { padding-block: 22px 6px; display: flex; flex-wrap: wrap; gap: 12px 24px; align-items: end; justify-content: space-between; }
+    h1 { font: 700 30px/1.1 var(--display); margin: 0; letter-spacing: .01em; text-wrap: balance; }
+    header p { margin: 4px 0 0; color: var(--muted); max-width: 62ch; }
+    .palette { display: grid; grid-template-columns: repeat(15, 18px); gap: 2px; }
+    .palette span { height: 26px; border-radius: 2px; font: 10px/1 var(--mono); display: flex; align-items: end; justify-content: center; padding-bottom: 2px; color: #fff; text-shadow: 0 0 2px #000; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; padding-block: 12px; border-block: 1px solid var(--line); margin-top: 14px; }
+    .toolbar label { display: flex; gap: 6px; align-items: center; color: var(--muted); font-size: 13px; }
+    input, select, button, textarea { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; }
+    input[type=text] { width: 96px; font-family: var(--mono); }
+    input[type=range] { accent-color: var(--accent); padding: 0; border: 0; background: none; }
+    button { cursor: pointer; }
+    button:hover { border-color: var(--accent); }
+    :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; }
+    .spacer { flex: 1; }
+    nav.tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-block: 16px 12px; }
+    nav.tabs button { font: 500 15px/1 var(--display); padding: 8px 14px; border-radius: 4px; }
+    nav.tabs button[aria-selected=true] { background: var(--ink); color: var(--ground); border-color: var(--ink); }
+    .grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 16px; align-items: start; }
+    @media (max-width: 840px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+    .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 14px; min-width: 0; }
+    .panel h2 { font: 500 13px/1 var(--display); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 12px; }
+    .stage { background: var(--stage); background-image: linear-gradient(var(--stage-grid) 1px, transparent 1px), linear-gradient(90deg, var(--stage-grid) 1px, transparent 1px); background-size: 16px 16px; border-radius: 6px; padding: 14px; display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-end; overflow-x: auto; }
+    .stage figure { margin: 0; text-align: center; }
+    .stage figcaption { color: var(--stage-ink); font: 11px/1.3 var(--mono); margin-top: 5px; }
+    canvas { image-rendering: pixelated; display: block; max-width: 100%; }
+    .controls { display: grid; gap: 10px; }
+    .controls .row { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .controls .row > span:first-child { font-size: 13px; color: var(--muted); }
+    .controls .val { font: 12px var(--mono); color: var(--ink); min-width: 52px; text-align: right; }
+    .controls h3 { font: 500 14px/1 var(--display); margin: 8px 0 0; }
+    .swatches { display: flex; flex-wrap: wrap; gap: 3px; }
+    .swatches button { width: 20px; height: 20px; padding: 0; border-radius: 3px; border: 2px solid transparent; }
+    .swatches button[aria-pressed=true] { border-color: var(--ink); box-shadow: 0 0 0 1px var(--surface) inset; }
+    .hint { color: var(--muted); font-size: 13px; margin: 0; }
+    .sound-card { background: var(--stage); border-radius: 6px; padding: 12px; display: grid; gap: 10px; width: 100%; }
+    .sound-card .head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; color: var(--stage-ink); font: 13px var(--mono); }
+    .sound-card .head strong { font: 500 16px var(--display); color: #fff; }
+    .chips { display: flex; flex-wrap: wrap; gap: 5px; }
+    .chips button { font-size: 12px; padding: 3px 9px; border-radius: 999px; background: transparent; color: var(--stage-ink); border-color: #3a3246; }
+    .chips button[aria-pressed=true] { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+    .play { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; }
+    .code-panel { margin-top: 16px; }
+    .code-panel .top { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+    textarea { width: 100%; height: 240px; font: 11.5px/1.35 var(--mono); resize: vertical; background: var(--ground); }
+    .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    #sheet { margin-top: 12px; }
+    #sheet img { image-rendering: pixelated; border: 1px solid var(--line); background: repeating-conic-gradient(var(--line) 0% 25%, transparent 0% 50%) 0 0 / 12px 12px; }
+    footer { color: var(--muted); font-size: 13px; padding-block: 24px 32px; }
+    .toast { position: fixed; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); left: 50%; transform: translateX(-50%); background: var(--ink); color: var(--ground); padding: 8px 14px; border-radius: 6px; opacity: 0; transition: opacity .2s; pointer-events: none; }
+    .toast.show { opacity: 1; }
+    @media (prefers-reduced-motion: reduce) { .toast { transition: none; } }
+</style>
+
+<div class="wrap">
+    <header>
+        <div>
+            <h1>Arcade Asset Generator</h1>
+            <p>Pixelgrafik und Sounds für MakeCode Arcade, prozedural erzeugt. Gleicher Seed = gleiches Ergebnis. Der Code lässt sich direkt in die JavaScript-Ansicht einfügen.</p>
+        </div>
+        <div class="palette" id="palette" aria-label="MakeCode-Palette, Farben 1 bis f"></div>
+    </header>
+
+    <div class="toolbar">
+        <label for="seed">Seed <input type="text" id="seed" value="1"></label>
+        <button id="dice" title="Zufälligen Seed wählen">Neu würfeln</button>
+        <label for="biome">Biom <select id="biome"></select></label>
+        <label for="zoom">Zoom <input type="range" id="zoom" min="1" max="6" value="3"></label>
+        <span class="spacer"></span>
+        <button class="primary" id="exportAll">Komplettes Set als Code</button>
+    </div>
+
+    <nav class="tabs" id="tabs" aria-label="Kategorien"></nav>
+
+    <div class="grid">
+        <section class="panel">
+            <h2 id="stageTitle">Vorschau</h2>
+            <div class="stage" id="stage"></div>
+        </section>
+        <aside class="panel">
+            <h2>Einstellungen</h2>
+            <div class="controls" id="controls"></div>
+        </aside>
+    </div>
+
+    <section class="panel code-panel">
+        <div class="top">
+            <h2 id="codeTitle" style="margin:0">MakeCode-Code (TypeScript)</h2>
+            <div class="actions">
+                <button class="primary" id="copy">Code kopieren</button>
+                <button id="png">PNG-Sheet anzeigen</button>
+            </div>
+        </div>
+        <textarea id="code" readonly spellcheck="false" aria-label="Erzeugter Code"></textarea>
+        <p class="hint">Grafiken landen im Namespace <code>gfx</code>, Sounds in <code>sounds</code>. Abspielen im Spiel: <code>music.play(sounds.jump, music.PlaybackMode.InBackground)</code></p>
+        <div id="sheet"></div>
+    </section>
+
+    <footer>Palette: MakeCode-Arcade-Standard (16 Farben, 0 = transparent). Hintergründe sind 160×120 groß und nahtlos kachelbar, Tiles und Figuren 16×16, der Boss 32×32.</footer>
+</div>
+<div class="toast" id="toast" role="status"></div>
+
+<script src="assetgen.js"></script>
+<script src="soundgen.js"></script>
+<script>
+(function () {
+    const G = AssetGen, S = SoundGen;
+    const $ = id => document.getElementById(id);
+    const state = {
+        tab: 'bg', seed: '1', biome: 'grass', zoom: 3,
+        char: Object.assign({}, G.CHAR_DEFAULTS), enemy: 'slime', boss: 'golem',
+        sfxType: 'jump', sfx: null, melType: 'start', mel: { key: null, minor: null, tempo: null },
+    };
+    const TABS = { bg: 'Hintergrund', tiles: 'Tiles', char: 'Spielfigur', enemy: 'Gegner', boss: 'Boss', items: 'Items', sound: 'Sounds' };
+    let timers = [];
+
+    // ---------- Aufbau
+    for (let c = 1; c < 16; c++) { const s = document.createElement('span'); s.style.background = G.PALETTE[c]; s.textContent = G.HEX[c]; s.title = G.COLOR_NAMES[c]; $('palette').appendChild(s); }
+    for (const k in G.BIOMES) $('biome').add(new Option(G.BIOMES[k].name + ' – ' + G.BIOMES[k].mood, k));
+    for (const k in TABS) {
+        const b = document.createElement('button');
+        b.textContent = TABS[k]; b.dataset.tab = k; b.id = 'tab-' + k;
+        b.onclick = () => { state.tab = k; render(); };
+        $('tabs').appendChild(b);
+    }
+    $('seed').oninput = e => { state.seed = e.target.value || '0'; state.sfx = null; render(); };
+    $('dice').onclick = () => {
+        state.seed = String(Math.floor(Math.random() * 99999)); $('seed').value = state.seed;
+        if (state.tab === 'char') state.char = G.randomCharacter(state.seed);
+        state.sfx = null; render();
+    };
+    $('biome').onchange = e => { state.biome = e.target.value; state.enemy = G.BIOME_ENEMIES[state.biome][0]; render(); };
+    $('zoom').oninput = e => { state.zoom = +e.target.value; render(); };
+    $('copy').onclick = copyCode;
+    $('png').onclick = showPng;
+    $('exportAll').onclick = exportAll;
+
+    function toast(msg) { const t = $('toast'); t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 1600); }
+    function copyCode() {
+        const ta = $('code');
+        const fallback = () => { ta.focus(); ta.select(); toast('Markiert – mit Strg+C kopieren'); };
+        if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(ta.value).then(() => toast('Code kopiert'), fallback);
+        else fallback();
+    }
+
+    // ---------- Zeichnen
+    function toCanvas(p, scale, cv) {
+        cv = cv || document.createElement('canvas');
+        if (p.w <= 32 && scale > 1) scale *= 2;
+        const im = p.toRGBA(1);
+        cv.width = p.w; cv.height = p.h;
+        cv.getContext('2d').putImageData(new ImageData(im.data, im.width, im.height), 0, 0);
+        cv.style.width = p.w * scale + 'px'; cv.style.height = p.h * scale + 'px';
+        return cv;
+    }
+    function figure(content, caption, parent) {
+        const f = document.createElement('figure');
+        f.appendChild(content);
+        const c = document.createElement('figcaption'); c.textContent = caption; f.appendChild(c);
+        (parent || $('stage')).appendChild(f);
+        return f;
+    }
+    function animFigure(frames, caption, ms) {
+        const cv = toCanvas(frames[0], state.zoom);
+        let i = 0;
+        timers.push(setInterval(() => { i = (i + 1) % frames.length; toCanvas(frames[i], state.zoom, cv); }, ms || 150));
+        return figure(cv, caption);
+    }
+    function framesRow(frames, caption) { frames.forEach((f, i) => figure(toCanvas(f, state.zoom), caption + ' ' + (i + 1))); }
+
+    // ---------- Bedienelemente
+    function control(label, el, id) {
+        const row = document.createElement('div'); row.className = 'row';
+        const l = document.createElement(id ? 'label' : 'span'); l.textContent = label; if (id) l.htmlFor = id;
+        row.appendChild(l); row.appendChild(el);
+        $('controls').appendChild(row);
+        return row;
+    }
+    function heading(text) { const h = document.createElement('h3'); h.textContent = text; $('controls').appendChild(h); }
+    function note(text) { const p = document.createElement('p'); p.className = 'hint'; p.textContent = text; $('controls').appendChild(p); }
+    function swatches(key) {
+        const box = document.createElement('div'); box.className = 'swatches';
+        for (let c = 1; c < 16; c++) {
+            const b = document.createElement('button');
+            b.style.background = G.PALETTE[c]; b.title = G.COLOR_NAMES[c]; b.setAttribute('aria-label', G.COLOR_NAMES[c]);
+            b.setAttribute('aria-pressed', state.char[key] === c);
+            b.onclick = () => { state.char[key] = c; render(); };
+            box.appendChild(b);
+        }
+        return box;
+    }
+    function select(id, options, value, onchange) {
+        const s = document.createElement('select'); s.id = id;
+        for (const k in options) s.add(new Option(options[k], k));
+        s.value = value; s.onchange = e => { onchange(e.target.value); render(); };
+        return s;
+    }
+    function slider(id, label, min, max, step, value, fmt, onchange) {
+        const wrap = document.createElement('span'); wrap.style.display = 'flex'; wrap.style.gap = '8px'; wrap.style.alignItems = 'center';
+        const r = document.createElement('input'); r.type = 'range'; r.id = id; r.min = min; r.max = max; r.step = step; r.value = value;
+        const v = document.createElement('span'); v.className = 'val'; v.textContent = fmt(value);
+        r.oninput = () => { v.textContent = fmt(+r.value); onchange(+r.value, false); };
+        r.onchange = () => onchange(+r.value, true);
+        wrap.appendChild(r); wrap.appendChild(v);
+        control(label, wrap, id);
+    }
+    function button(text, cls, onclick) { const b = document.createElement('button'); b.textContent = text; if (cls) b.className = cls; b.onclick = onclick; return b; }
+
+    // ---------- Daten
+    const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+    function data() {
+        const s = state.seed, b = state.biome;
+        switch (state.tab) {
+            case 'bg': return { bg: G.background(b, s) };
+            case 'tiles': return { tiles: G.tileset(b, s), bg: G.background(b, s) };
+            case 'char': return { char: G.character(state.char) };
+            case 'enemy': return { enemy: G.enemy(state.enemy, s) };
+            case 'boss': return { boss: G.boss(state.boss, s) };
+            case 'items': return { items: G.items(s) };
+            case 'sound': return {};
+        }
+    }
+    function currentSfx() { if (!state.sfx || state.sfx.type !== state.sfxType) state.sfx = S.sfx(state.sfxType, state.seed); return state.sfx; }
+    function currentMelody() {
+        const o = {}; if (state.mel.key != null) o.key = state.mel.key; if (state.mel.minor != null) o.minor = state.mel.minor; if (state.mel.tempo) o.tempo = state.mel.tempo;
+        return S.melody(state.melType, state.seed, o);
+    }
+    function codeFor(d) {
+        const b = cap(state.biome);
+        if (state.tab === 'sound') {
+            return 'namespace sounds {\n' + S.sfxToTS(state.sfxType, currentSfx()) + S.melodyToTS(state.melType + 'Tune', currentMelody()) + '}\n';
+        }
+        let ts = 'namespace gfx {\n';
+        if (state.tab === 'bg') ['sky', 'far', 'near'].forEach(k => ts += G.imageToTS('bg' + b + cap(k), d.bg[k]));
+        if (state.tab === 'tiles') for (const k in d.tiles) ts += G.imageToTS('tile' + b + cap(k), d.tiles[k]);
+        if (state.tab === 'char') for (const k in d.char) ts += G.framesToTS('player' + cap(k) + 'R', d.char[k]) + G.framesToTS('player' + cap(k) + 'L', d.char[k].map(f => f.flipX()));
+        if (state.tab === 'enemy') { ts += G.framesToTS(state.enemy + 'Walk', d.enemy.walk) + G.imageToTS(state.enemy + 'Dead', d.enemy.dead); }
+        if (state.tab === 'boss') { ts += G.framesToTS('bossWalk', d.boss.walk) + G.imageToTS('bossAttack', d.boss.attack) + G.imageToTS('bossHurt', d.boss.hurt); }
+        if (state.tab === 'items') for (const k in d.items) ts += Array.isArray(d.items[k]) ? G.framesToTS(k, d.items[k]) : G.imageToTS(k, d.items[k]);
+        return ts + '}\n';
+    }
+    function sheetImages(d) {
+        if (state.tab === 'bg') return [d.bg.sky, d.bg.far, d.bg.near];
+        if (d.tiles) return Object.values(d.tiles);
+        if (d.char) return [].concat(...Object.values(d.char));
+        if (d.enemy) return [...d.enemy.walk, d.enemy.dead];
+        if (d.boss) return [...d.boss.walk, d.boss.attack, d.boss.hurt];
+        if (d.items) return [].concat(...Object.values(d.items));
+        return [];
+    }
+
+    // ---------- Sound-Vorschau zeichnen
+    function drawSfx(cv, s, progress) {
+        const W = cv.width, H = cv.height, c = cv.getContext('2d');
+        c.clearRect(0, 0, W, H);
+        const maxF = 2600, y = f => H - 8 - (Math.min(f, maxF) / maxF) * (H - 16);
+        c.fillStyle = 'rgba(76,195,201,0.18)';
+        c.beginPath(); c.moveTo(0, H);
+        for (let x = 0; x <= W; x++) c.lineTo(x, H - S.sfxVolAt(s, x / W) * (H - 10));
+        c.lineTo(W, H); c.fill();
+        c.strokeStyle = '#fff609'; c.lineWidth = 2; c.beginPath();
+        for (let x = 0; x <= W; x++) { const yy = y(S.sfxFreqAt(s, x / W)); x ? c.lineTo(x, yy) : c.moveTo(x, yy); }
+        c.stroke();
+        if (progress != null) { c.fillStyle = '#ff93c4'; c.fillRect(progress * W, 0, 2, H); }
+        c.fillStyle = '#b9b0c6'; c.font = '11px monospace';
+        c.fillText(s.f0 + ' Hz', 6, 14); c.textAlign = 'right'; c.fillText(s.f1 + ' Hz · ' + s.dur + ' ms', W - 6, 14); c.textAlign = 'left';
+    }
+    function drawMelody(cv, mel, active) {
+        const W = cv.width, H = cv.height, c = cv.getContext('2d');
+        c.clearRect(0, 0, W, H);
+        const ms = mel.notes.filter(n => n.m != null).map(n => n.m);
+        const lo = Math.min(...ms) - 2, hi = Math.max(...ms) + 2, total = mel.notes.reduce((a, n) => a + n.d, 0);
+        const rowH = (H - 20) / (hi - lo + 1);
+        for (let m = lo; m <= hi; m++) if ([1, 3, 6, 8, 10].includes(m % 12)) { c.fillStyle = 'rgba(255,255,255,0.04)'; c.fillRect(0, 10 + (hi - m) * rowH, W, rowH); }
+        let x = 0;
+        mel.notes.forEach((n, i) => {
+            const w = n.d / total * W;
+            if (n.m != null) {
+                c.fillStyle = i === active ? '#fff609' : (n.m % 12 === mel.root ? '#4cc3c9' : '#8e2ec4');
+                c.fillRect(x + 1, 10 + (hi - n.m) * rowH, Math.max(2, w - 2), Math.max(3, rowH - 1));
+            }
+            x += w;
+        });
+    }
+
+    function renderSound() {
+        // --- Soundeffekt
+        const s = currentSfx();
+        const card = document.createElement('div'); card.className = 'sound-card';
+        const head = document.createElement('div'); head.className = 'head';
+        head.innerHTML = '<strong>Soundeffekt</strong>';
+        const meta = document.createElement('span'); meta.textContent = S.WAVE_NAMES[s.wave] + ' · ' + S.EFFECT_NAMES[s.effect] + ' · ' + S.CURVE_NAMES[s.curve];
+        head.appendChild(meta);
+        const chips = document.createElement('div'); chips.className = 'chips';
+        for (const k in S.SFX_TYPES) {
+            const b = button(S.SFX_TYPES[k].name, '', () => { state.sfxType = k; state.sfx = null; render(); S.playSfx(currentSfx()); });
+            b.setAttribute('aria-pressed', k === state.sfxType); chips.appendChild(b);
+        }
+        const cv = document.createElement('canvas'); cv.width = 560; cv.height = 130; cv.style.width = '100%'; cv.style.imageRendering = 'auto';
+        drawSfx(cv, s);
+        const play = button('▶ Effekt abspielen', 'play', () => {
+            const dur = S.playSfx(s) || 0, t0 = performance.now();
+            const step = () => { const p = (performance.now() - t0) / dur; if (p <= 1) { drawSfx(cv, s, p); requestAnimationFrame(step); } else drawSfx(cv, s); };
+            requestAnimationFrame(step);
+        });
+        const row = document.createElement('div'); row.className = 'actions';
+        row.appendChild(play);
+        row.appendChild(button('Variante würfeln', '', () => { state.sfx = S.sfx(state.sfxType, String(Math.floor(Math.random() * 99999))); render(); S.playSfx(state.sfx); }));
+        card.append(head, chips, cv, row);
+        $('stage').appendChild(card);
+
+        // --- Melodie
+        const mel = currentMelody();
+        const card2 = document.createElement('div'); card2.className = 'sound-card';
+        const head2 = document.createElement('div'); head2.className = 'head';
+        head2.innerHTML = '<strong>Melodie</strong>';
+        const meta2 = document.createElement('span'); meta2.textContent = S.KEYS[mel.root] + (mel.minor ? '-Moll' : '-Dur') + ' · ' + mel.tempo + ' bpm · ' + (S.melodyLength(mel) / 1000).toFixed(1) + ' s';
+        head2.appendChild(meta2);
+        const chips2 = document.createElement('div'); chips2.className = 'chips';
+        for (const k in S.MELODY_TYPES) {
+            const b = button(S.MELODY_TYPES[k].name, '', () => { state.melType = k; state.mel = { key: null, minor: null, tempo: null }; render(); });
+            b.setAttribute('aria-pressed', k === state.melType); chips2.appendChild(b);
+        }
+        const cv2 = document.createElement('canvas'); cv2.width = 560; cv2.height = 150; cv2.style.width = '100%'; cv2.style.imageRendering = 'auto';
+        drawMelody(cv2, mel, -1);
+        const row2 = document.createElement('div'); row2.className = 'actions';
+        row2.appendChild(button('▶ Melodie abspielen', 'play', () => S.playMelody(mel, i => drawMelody(cv2, mel, i))));
+        row2.appendChild(button('■ Stopp', '', () => { S.stopMelody(); drawMelody(cv2, mel, -1); }));
+        const str = document.createElement('code'); str.style.cssText = 'color:var(--stage-ink);font:11px var(--mono);word-break:break-all';
+        str.textContent = S.melodyToString(mel);
+        card2.append(head2, chips2, cv2, row2, str);
+        $('stage').appendChild(card2);
+
+        // --- Einstellungen
+        heading('Soundeffekt');
+        const upd = key => (v, final) => { state.sfx = Object.assign({}, state.sfx, { [key]: v }); if (final) { render(); S.playSfx(state.sfx); } else drawSfx(cv, state.sfx); };
+        const opts = (list, names) => { const o = {}; list.forEach(k => o[k] = names[k]); return o; };
+        control('Wellenform', select('sfx-wave', opts(S.WAVES, S.WAVE_NAMES), s.wave, v => { state.sfx.wave = v; }), 'sfx-wave');
+        slider('sfx-f0', 'Start-Frequenz', 50, 3000, 10, s.f0, v => v + ' Hz', upd('f0'));
+        slider('sfx-f1', 'End-Frequenz', 50, 3000, 10, s.f1, v => v + ' Hz', upd('f1'));
+        slider('sfx-v0', 'Start-Lautstärke', 0, 255, 1, s.v0, v => v, upd('v0'));
+        slider('sfx-v1', 'End-Lautstärke', 0, 255, 1, s.v1, v => v, upd('v1'));
+        slider('sfx-dur', 'Dauer', 20, 1500, 10, s.dur, v => v + ' ms', upd('dur'));
+        control('Effekt', select('sfx-effect', opts(S.EFFECTS, S.EFFECT_NAMES), s.effect, v => { state.sfx.effect = v; }), 'sfx-effect');
+        control('Verlauf', select('sfx-curve', opts(S.CURVES, S.CURVE_NAMES), s.curve, v => { state.sfx.curve = v; }), 'sfx-curve');
+        heading('Melodie');
+        const keys = { '': 'automatisch' }; S.KEYS.forEach((k, i) => keys[i] = k);
+        control('Tonart', select('mel-key', keys, state.mel.key == null ? '' : String(state.mel.key), v => { state.mel.key = v === '' ? null : +v; }), 'mel-key');
+        control('Tongeschlecht', select('mel-mode', { '': 'passend', maj: 'Dur', min: 'Moll' }, state.mel.minor == null ? '' : state.mel.minor ? 'min' : 'maj', v => { state.mel.minor = v === '' ? null : v === 'min'; }), 'mel-mode');
+        slider('mel-tempo', 'Tempo', 60, 260, 2, mel.tempo, v => v + ' bpm', (v, final) => { state.mel.tempo = v; if (final) render(); });
+        note('Der Seed würfelt die Variante; alle Werte lassen sich hier feinjustieren. Die Vorschau nähert den MakeCode-Klang an – im Spiel klingt es sehr ähnlich.');
+    }
+
+    // ---------- Render
+    function render() {
+        timers.forEach(clearInterval); timers = [];
+        S.stopMelody();
+        document.querySelectorAll('#tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === state.tab));
+        $('stage').innerHTML = ''; $('controls').innerHTML = ''; $('sheet').innerHTML = '';
+        $('stageTitle').textContent = TABS[state.tab];
+        $('codeTitle').textContent = 'MakeCode-Code (TypeScript)';
+        $('png').hidden = state.tab === 'sound';
+        const d = data();
+
+        if (state.tab === 'bg') {
+            const W = 160, H = 120, cv = document.createElement('canvas');
+            cv.width = W; cv.height = H; cv.style.width = W * state.zoom + 'px'; cv.style.height = H * state.zoom + 'px';
+            const layers = [d.bg.sky, d.bg.far, d.bg.near].map(p => toCanvas(p, 1));
+            const speeds = [0.1, 0.35, 0.7], ctx = cv.getContext('2d');
+            const still = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+            let t = 0;
+            const tick = () => {
+                t += 1.2; ctx.clearRect(0, 0, W, H);
+                layers.forEach((l, i) => { const off = -((t * speeds[i]) % W); ctx.drawImage(l, off, 0); ctx.drawImage(l, off + W, 0); });
+            };
+            tick(); if (!still) timers.push(setInterval(tick, 33));
+            figure(cv, 'Parallax-Vorschau');
+            ['sky', 'far', 'near'].forEach(k => figure(toCanvas(d.bg[k], Math.max(1, state.zoom - 2)), k));
+            note('Drei Ebenen à 160×120, nahtlos kachelbar. „sky“ ist deckend, „far“ und „near“ sind transparent. Im Spiel verschiebt man sie unterschiedlich schnell mit der Kamera, z. B. mit den Faktoren 0,05 / 0,25 / 0,55.');
+        }
+        if (state.tab === 'tiles') {
+            for (const k in d.tiles) figure(toCanvas(d.tiles[k], state.zoom), k);
+            const lv = d.bg.sky.clone().blit(d.bg.far, 0, 0).blit(d.bg.near, 0, 0);
+            for (let i = 0; i < 10; i++) lv.blit(d.tiles.groundTop, i * 16, 104);
+            lv.blit(d.tiles.platform, 48, 64).blit(d.tiles.platform, 64, 64).blit(d.tiles.spikes, 96, 88).blit(d.tiles.goal, 128, 88).blit(d.tiles.deco, 16, 88);
+            figure(toCanvas(lv, Math.max(1, state.zoom - 1)), 'Beispielszene');
+            note('groundTop und ground = Boden, platform = Plattform, spikes = Gefahr, goal = Ziel, deco = Deko ohne Kollision.');
+        }
+        if (state.tab === 'char') {
+            const c = d.char;
+            animFigure(c.run, 'Laufen', 110); animFigure([c.idle[0], c.idle[0], c.idle[0], c.idle[1]], 'Stehen', 300);
+            framesRow(c.jump, 'Sprung'); framesRow(c.fall, 'Fallen'); framesRow(c.run, 'Lauf');
+            control('Haut', swatches('skin')); control('Haare', swatches('hair')); control('Oberteil', swatches('shirt'));
+            control('Hose', swatches('pants')); control('Schuhe', swatches('boots'));
+            control('Frisur', select('hair', { short: 'kurz', spiky: 'stachelig', long: 'lang', bald: 'Glatze' }, state.char.hairStyle, v => state.char.hairStyle = v), 'hair');
+            control('Kopfbedeckung', select('hat', { none: 'keine', cap: 'Kappe', helmet: 'Helm', band: 'Stirnband' }, state.char.hat, v => state.char.hat = v), 'hat');
+            control('Hut-Farbe', swatches('hatColor'));
+            control('Umhang', select('cape', { 0: 'keiner', 2: 'rot', 10: 'lila', 8: 'blau', 5: 'gelb', 7: 'grün' }, String(state.char.cape), v => state.char.cape = +v), 'cape');
+            control('', button('Zufallsfigur', '', () => { state.seed = String(Math.floor(Math.random() * 99999)); $('seed').value = state.seed; state.char = G.randomCharacter(state.seed); render(); }));
+            note('Die Figur schaut nach rechts; der Export enthält zusätzlich gespiegelte Frames (…L).');
+        }
+        if (state.tab === 'enemy') {
+            animFigure(d.enemy.walk, 'Animation', 140);
+            framesRow(d.enemy.walk, 'Frame'); figure(toCanvas(d.enemy.dead, state.zoom), 'besiegt');
+            const opts = {}; for (const k in G.ENEMY_TYPES) opts[k] = G.ENEMY_TYPES[k].name + (G.ENEMY_TYPES[k].kind === 'flyer' ? ' (fliegt)' : ' (läuft)');
+            control('Typ', select('enemy', opts, state.enemy, v => state.enemy = v), 'enemy');
+            note('Die Farbvariante hängt vom Seed ab.');
+        }
+        if (state.tab === 'boss') {
+            animFigure(d.boss.walk, 'Laufen', 250);
+            figure(toCanvas(d.boss.attack, state.zoom), 'Angriff'); figure(toCanvas(d.boss.hurt, state.zoom), 'Treffer-Blitz');
+            control('Typ', select('boss', G.BOSS_TYPES, state.boss, v => state.boss = v), 'boss');
+        }
+        if (state.tab === 'items') {
+            animFigure(d.items.coin, 'Münze', 120);
+            ['gem', 'heart', 'shot', 'fire', 'slash', 'chestClosed', 'chestOpen'].forEach(k => figure(toCanvas(d.items[k], state.zoom), k));
+            note('Münze (animiert), Edelstein, Herz, Geschoss, Feuerball, Schwerthieb, Truhe zu und offen.');
+        }
+        if (state.tab === 'sound') renderSound();
+        $('code').value = codeFor(d);
+    }
+
+    // ---------- Export
+    function showPng() {
+        const imgs = sheetImages(data()), pad = 2;
+        if (!imgs.length) return;
+        const w = imgs.reduce((s, p) => s + p.w + pad, pad), h = Math.max(...imgs.map(p => p.h)) + pad * 2;
+        const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+        const ctx = cv.getContext('2d'); let x = pad;
+        imgs.forEach(p => { ctx.drawImage(toCanvas(p, 1), x, pad); x += p.w + pad; });
+        const img = new Image(); img.src = cv.toDataURL('image/png'); img.alt = 'PNG-Sheet';
+        img.style.width = Math.min(w * 2, 1000) + 'px'; img.style.maxWidth = '100%';
+        $('sheet').innerHTML = '<p class="hint">Rechtsklick auf das Bild → „Bild speichern unter …“ (Originalgröße ' + w + '×' + h + ' px, transparent).</p>';
+        $('sheet').appendChild(img);
+    }
+    function exportAll() {
+        const s = state.seed, b = state.biome, B = cap(b);
+        const bg = G.background(b, s), t = G.tileset(b, s), ch = G.character(state.char), it = G.items(s), bo = G.boss(state.boss, s);
+        let ts = '// Arcade Asset Generator – Seed "' + s + '", Biom ' + b + '\nnamespace gfx {\n';
+        ['sky', 'far', 'near'].forEach(k => ts += G.imageToTS('bg' + B + cap(k), bg[k]));
+        for (const k in t) ts += G.imageToTS('tile' + B + cap(k), t[k]);
+        for (const k in ch) ts += G.framesToTS('player' + cap(k) + 'R', ch[k]) + G.framesToTS('player' + cap(k) + 'L', ch[k].map(f => f.flipX()));
+        G.BIOME_ENEMIES[b].forEach(e => { const en = G.enemy(e, s); ts += G.framesToTS(e + 'Walk', en.walk) + G.imageToTS(e + 'Dead', en.dead); });
+        ts += G.framesToTS('bossWalk', bo.walk) + G.imageToTS('bossAttack', bo.attack) + G.imageToTS('bossHurt', bo.hurt);
+        for (const k in it) ts += Array.isArray(it[k]) ? G.framesToTS(k, it[k]) : G.imageToTS(k, it[k]);
+        ts += '}\n\nnamespace sounds {\n';
+        for (const k in S.SFX_TYPES) ts += S.sfxToTS(k, S.sfx(k, s));
+        for (const k in S.MELODY_TYPES) ts += S.melodyToTS(k + 'Tune', S.melody(k, s));
+        ts += '}\n';
+        $('code').value = ts;
+        $('codeTitle').textContent = 'Komplettes Set (' + Math.round(ts.length / 1024) + ' KB) – Grafiken + Sounds';
+        $('code').scrollIntoView({ behavior: 'smooth', block: 'center' });
+        toast('Komplettes Set erzeugt – jetzt „Code kopieren“');
+    }
+
+    const hash = location.hash.slice(1);
+    if (TABS[hash]) state.tab = hash;
+    render();
+})();
+</script>
