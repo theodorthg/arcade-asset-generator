@@ -794,37 +794,16 @@
     }
 
     /**
-     * Baut ein MakeCode-Arcade-Projekt mit allen Assets eines Biom/Seed-Sets.
-     * Rückgabe: { files: {Dateiname: Inhalt}, mkcd: String (JSON, direkt importierbar), names: {...} }
+     * Baut die vier Asset-Dateien eines MakeCode-Projekts.
+     * spec.images:   [{name, p}]                 -> assets.image`name`
+     * spec.anims:    [{name, frames, interval}]  -> assets.animation`name`
+     * spec.tiles:    [{name, p}]                 -> assets.tile`name` (Kacheln für den Tilemap-Editor)
+     * spec.tilemaps: [{name, w, h, grid, walls, tileNames}] -> tilemap`name`
+     *   grid-Werte: 0 = leer, n = tileNames[n-1]; walls: 0/1 je Feld
      */
-    // Erweiterungen, die der Export optional einbinden kann (Name -> pxt.json-Abhängigkeit)
-    const EXTENSIONS = {
-        pixelquest: { label: 'Pixel-Quest-Erweiterung', spec: 'github:theodorthg/pxt-pixelquest#v0.1.1' },
-    };
-
-    function makecodeProject(opts) {
-        opts = opts || {};
-        const seed = opts.seed || '1', biome = opts.biome || 'grass', B = biome;
-        const name = opts.name || ('assets-' + biome + '-' + seed);
-        const bg = background(biome, seed), t = tileset(biome, seed), ch = character(opts.char || {});
-        const it = items(seed), bo = boss(opts.boss || 'golem', seed);
-        const [walkerType, flyerType] = BIOME_ENEMIES[biome];
-        const walker = enemy(walkerType, seed), flyer = enemy(flyerType, seed);
-
-        // ---------- Bilder & Animationen
-        const images = [], anims = [];
-        const addImg = (display, p) => images.push({ id: 'image' + (images.length + 1), display, p });
-        const addAnim = (display, frames, interval) => anims.push({ id: 'anim' + (anims.length + 1), display, frames, interval });
-        addImg(B + 'Sky', bg.sky); addImg(B + 'Far', bg.far); addImg(B + 'Near', bg.near);
-        addImg('heroStand', ch.idle[0]); addImg('heroJump', ch.jump[0]); addImg('heroFall', ch.fall[0]);
-        addAnim('heroRun', ch.run, 100); addAnim('heroRunLeft', ch.run.map(f => f.flipX()), 100);
-        addAnim('heroIdle', [ch.idle[0], ch.idle[0], ch.idle[0], ch.idle[1]], 250);
-        addImg(walkerType, walker.walk[0]); addAnim(walkerType + 'Walk', walker.walk, 150); addImg(walkerType + 'Dead', walker.dead);
-        addImg(flyerType, flyer.walk[0]); addAnim(flyerType + 'Fly', flyer.walk, 100); addImg(flyerType + 'Dead', flyer.dead);
-        addImg('boss', bo.walk[0]); addAnim('bossWalk', bo.walk, 250); addImg('bossAttack', bo.attack); addImg('bossHurt', bo.hurt);
-        addImg('coin', it.coin[0]); addAnim('coinSpin', it.coin, 120);
-        ['gem', 'heart', 'shot', 'fire', 'slash', 'chestClosed', 'chestOpen'].forEach(k => addImg(k, it[k]));
-
+    function buildAssetFiles(spec) {
+        const images = (spec.images || []).map((im, i) => ({ id: 'image' + (i + 1), display: im.name, p: im.p }));
+        const anims = (spec.anims || []).map((a, i) => ({ id: 'anim' + (i + 1), display: a.name, frames: a.frames, interval: a.interval || 100 }));
         const imgJres = { '*': { mimeType: 'image/x-mkcd-f4', dataEncoding: 'base64', namespace: 'myImages' } };
         images.forEach(im => imgJres[im.id] = { data: bytesToBase64(f4Bytes(im.p)), mimeType: 'image/x-mkcd-f4', displayName: im.display });
         anims.forEach(a => {
@@ -840,71 +819,212 @@
             factory('song', []) + factory('json', []) +
             '\n}\n// Auto-generated code. Do not edit.\n';
 
-        // ---------- Kacheln & Demo-Tilemap
-        const tileNames = ['groundTop', 'ground', 'platform', 'spikes', 'goal', 'deco'];
         const tileList = [{ id: 'transparency16', display: null, p: new Pix(16, 16) }]
-            .concat(tileNames.map((k, i) => ({ id: 'tile' + (i + 1), display: B + cap(k), p: t[k] })));
+            .concat((spec.tiles || []).map((t, i) => ({ id: 'tile' + (i + 1), display: t.name, p: t.p })));
+        const idByName = {};
+        tileList.forEach(tl => { if (tl.display) idByName[tl.display] = tl.id; });
         const tmJres = { '*': { mimeType: 'image/x-mkcd-f4', dataEncoding: 'base64', namespace: 'myTiles' } };
         tileList.forEach(tl => {
             tmJres[tl.id] = { data: bytesToBase64(f4Bytes(tl.p)), mimeType: 'image/x-mkcd-f4', tilemapTile: true };
             if (tl.display) tmJres[tl.id].displayName = tl.display;
         });
-        // kleines Demo-Level: 32x8, Index = Position in tileList
-        const LW = 32, LH = 8, grid = [], walls = [];
-        const rows = [
-            '................................',
-            '................................',
-            '.........===..........====......',
-            '................................',
-            '....d.........===..........d..G.',
-            '######...######....####^^#######',
-            '######...######....#############',
-            '######...######....#############',
-        ];
-        for (let y = 0; y < LH; y++) for (let x = 0; x < LW; x++) {
-            const c = (rows[y][x] || '.');
-            let ti = 0;
-            if (c === '#') ti = (y > 0 && rows[y - 1][x] === '#') ? 2 : 1;
-            if (c === '=') ti = 3; if (c === '^') ti = 4; if (c === 'G') ti = 5; if (c === 'd') ti = 6;
-            grid.push(ti); walls.push(c === '#' || c === '=' ? 2 : 0);
-        }
-        const tmBytes = [16, ...le16(LW), ...le16(LH), ...grid, ...rawBitmap(LW, LH, (x, y) => walls[x + y * LW])];
-        const tileRefs = tileList.map(tl => 'myTiles.' + tl.id);
-        tmJres.demoLevel = { id: 'demoLevel', mimeType: 'application/mkcd-tilemap', data: base64(bytesToHex(tmBytes)), tileset: tileRefs, displayName: 'demoLevel' };
-        const wallLit = 'img`\n' + Array.from({ length: LH }, (_, y) => I3 + Array.from({ length: LW }, (_, x) => walls[x + y * LW] ? '2' : '.').join(' ')).join('\n') + '\n                `';
+        const tilemapEntries = (spec.tilemaps || []).map(tm => {
+            const refs = ['myTiles.transparency16'].concat(tm.tileNames.map(n => {
+                if (!idByName[n]) throw new Error('Tilemap ' + tm.name + ': unbekannte Kachel ' + n);
+                return 'myTiles.' + idByName[n];
+            }));
+            const bytes = [16, ...le16(tm.w), ...le16(tm.h), ...tm.grid, ...rawBitmap(tm.w, tm.h, (x, y) => tm.walls[x + y * tm.w] ? 2 : 0)];
+            tmJres[tm.name] = { id: tm.name, mimeType: 'application/mkcd-tilemap', data: base64(bytesToHex(bytes)), tileset: refs, displayName: tm.name };
+            const wallLit = 'img`\n' + Array.from({ length: tm.h }, (_, y) => I3 + Array.from({ length: tm.w }, (_, x) => tm.walls[x + y * tm.w] ? '2' : '.').join(' ')).join('\n') + '\n                `';
+            return { keys: [tm.name, tm.name], expression: `tiles.createTilemap(hex\`${bytesToHex([...le16(tm.w), ...le16(tm.h), ...tm.grid])}\`, ${wallLit}, [${refs.join(',')}], TileScale.Sixteen)` };
+        });
         const tmTs = '// Auto-generated code. Do not edit.\nnamespace myTiles {\n' +
             tileList.map(tl => `    //% fixedInstance jres blockIdentity=images._tile\n    export const ${tl.id} = image.ofBuffer(hex\`\`);\n`).join('') +
-            factory('tilemap', [{ keys: ['demoLevel', 'demoLevel'], expression: `tiles.createTilemap(hex\`${bytesToHex([...le16(LW), ...le16(LH), ...grid])}\`, ${wallLit}, [${tileRefs.join(',')}], TileScale.Sixteen)` }]) +
+            factory('tilemap', tilemapEntries) +
             factory('tile', tileList.map(tl => ({ keys: tl.display ? [tl.display, tl.id] : [tl.id], expression: tl.id }))) +
             '\n}\n// Auto-generated code. Do not edit.\n';
+        return {
+            'images.g.jres': JSON.stringify(imgJres, null, 4), 'images.g.ts': imgTs,
+            'tilemap.g.jres': JSON.stringify(tmJres, null, 4), 'tilemap.g.ts': tmTs,
+        };
+    }
 
-        // ---------- Startprogramm (wird in MakeCode als Blöcke angezeigt)
-        const mainTs = [
-            `scene.setBackgroundImage(assets.image\`${B}Sky\`)`,
-            'tiles.setCurrentTilemap(tilemap`demoLevel`)',
-            'let hero = sprites.create(assets.image`heroStand`, SpriteKind.Player)',
-            'controller.moveSprite(hero, 80, 0)',
-            'hero.ay = 400',
-            'tiles.placeOnTile(hero, tiles.getTileLocation(1, 4))',
-            'scene.cameraFollowSprite(hero)',
-            'animation.runImageAnimation(hero, assets.animation`heroIdle`, 250, true)',
-            `let coin = sprites.create(assets.image\`coin\`, SpriteKind.Food)`,
-            'tiles.placeOnTile(coin, tiles.getTileLocation(10, 1))',
-            'animation.runImageAnimation(coin, assets.animation`coinSpin`, 120, true)',
-            'controller.A.onEvent(ControllerButtonEvent.Pressed, function () {',
-            '    if (hero.isHittingTile(CollisionDirection.Bottom)) {',
-            '        hero.vy = -170',
-            '    }',
-            '})',
-            'sprites.onOverlap(SpriteKind.Player, SpriteKind.Food, function (sprite, otherSprite) {',
-            '    otherSprite.destroy(effects.confetti, 200)',
-            '    info.changeScoreBy(10)',
-            '})',
-            '',
-        ].join('\n');
+    // Erweiterungen, die der Export optional einbinden kann (Name -> pxt.json-Abhängigkeit)
+    const EXTENSIONS = {
+        pixelquest: { label: 'Pixel-Quest-Erweiterung', spec: 'github:theodorthg/pxt-pixelquest#v0.2.0' },
+    };
+
+    // =====================================================================
+    //  PIXEL-QUEST: Asset-Namen, Markierungs-Kacheln, Text-Level
+    // =====================================================================
+    const PQ_STYLES = ['grass', 'scifi', 'dungeon'];
+    const PQ_STYLE_ENUM = ['Grass', 'SciFi', 'Dungeon'];
+    const PQ_MARKERS = ['pqStart', 'pqCoin', 'pqGem', 'pqHeart', 'pqChest', 'pqChestHeart', 'pqWalker', 'pqFlyer', 'pqBoss', 'pqGate'];
+    const PQ_MARKER_CHARS = 'PcghCHefBX';   // Zeichen in Text-Leveln, gleiche Reihenfolge wie PQ_MARKERS
+
+    // Markierungs-Kacheln: das Spielbild mit gestricheltem Farbrahmen (werden beim Laden durch Leer ersetzt)
+    function markers(opts) {
+        opts = opts || {};
+        const it = items(opts.itemSeed || '1'), ch = character(opts.char || {});
+        const [wt, ft] = BIOME_ENEMIES[opts.style || 'grass'];
+        const walker = enemy(wt, opts.enemySeed || '1'), flyer = enemy(ft, opts.enemySeed || '1');
+        const bo = boss(opts.bossType || 'knight', opts.bossSeed || '1');
+        const center = (src) => new Pix(16, 16).blit(src, Math.floor((16 - src.w) / 2), Math.floor((16 - src.h) / 2));
+        const half = (src) => { const p = new Pix(src.w >> 1, src.h >> 1); for (let y = 0; y < p.h; y++) for (let x = 0; x < p.w; x++) p.set(x, y, src.get(x * 2, y * 2) || src.get(x * 2 + 1, y * 2 + 1)); return p; };
+        const frame = (p, c) => { for (let i = 0; i < 16; i++) if (i % 4 < 2) { p.set(i, 0, c); p.set(i, 15, c); p.set(0, i, c); p.set(15, i, c); } return p; };
+        const gate = new Pix(16, 16);
+        for (let x = 3; x < 14; x += 3) gate.rect(x, 2, 1, 12, 0xb).rect(x + 1, 2, 1, 12, 0xc);
+        gate.rect(2, 2, 12, 1, 0xc).rect(2, 13, 12, 1, 0xc);
+        const chestHeart = it.chestClosed.clone().blit(it.heart, 8, 0);
+        return [
+            frame(center(ch.idle[0]), 7), frame(center(it.coin[0]), 5), frame(center(it.gem), 5), frame(center(it.heart), 5),
+            frame(center(it.chestClosed), 4), frame(center(chestHeart), 4), frame(center(walker.walk[0]), 2),
+            frame(center(flyer.walk[0]), 2), frame(center(half(bo.walk[0])), 0xa), frame(gate, 0xb),
+        ];
+    }
+
+    /**
+     * Alle Assets unter den Namen, nach denen die Pixel-Quest-Engine sucht.
+     * opts.styles: [{style:'grass'|'scifi'|'dungeon', seed}], opts.char, opts.bossType/bossSeed, opts.itemSeed, opts.enemySeed
+     */
+    function pixelquestAssets(opts) {
+        const images = [], anims = [], tiles = [];
+        const ch = character(opts.char || {});
+        anims.push({ name: 'heroIdle', frames: [ch.idle[0], ch.idle[0], ch.idle[0], ch.idle[1]], interval: 250 });
+        anims.push({ name: 'heroRun', frames: ch.run, interval: 90 });
+        images.push({ name: 'heroJump', p: ch.jump[0] }, { name: 'heroFall', p: ch.fall[0] });
+        const bo = boss(opts.bossType || 'knight', opts.bossSeed || '1');
+        anims.push({ name: 'bossWalk', frames: bo.walk, interval: 250 });
+        images.push({ name: 'bossAttack', p: bo.attack }, { name: 'bossHurt', p: bo.hurt });
+        const it = items(opts.itemSeed || '1');
+        anims.push({ name: 'coinSpin', frames: it.coin, interval: 120 });
+        ['gem', 'heart', 'shot', 'fire', 'slash', 'chestClosed', 'chestOpen'].forEach(k => images.push({ name: k, p: it[k] }));
+        (opts.styles || []).forEach(({ style, seed }) => {
+            const bg = background(style, seed), t = tileset(style, seed);
+            ['sky', 'far', 'near'].forEach(k => images.push({ name: style + cap(k), p: bg[k] }));
+            ['groundTop', 'ground', 'platform', 'spikes', 'goal', 'deco'].forEach(k => tiles.push({ name: style + cap(k), p: t[k] }));
+            const [wt, ft] = BIOME_ENEMIES[style];
+            const w = enemy(wt, opts.enemySeed || seed), f = enemy(ft, opts.enemySeed || seed);
+            anims.push({ name: wt + 'Walk', frames: w.walk, interval: 160 }, { name: ft + 'Fly', frames: f.walk, interval: 100 });
+            images.push({ name: wt + 'Dead', p: w.dead }, { name: ft + 'Dead', p: f.dead });
+        });
+        const firstStyle = ((opts.styles || [])[0] || {}).style || 'grass';
+        markers(Object.assign({}, opts, { style: firstStyle })).forEach((p, i) => tiles.push({ name: PQ_MARKERS[i], p }));
+        return { images, anims, tiles };
+    }
+
+    // Text-Level (Legende wie tools/build-levels.js) -> Tilemap-Spezifikation für buildAssetFiles
+    function asciiLevel(name, rows, style) {
+        const w = Math.max(...rows.map(r => r.length)), h = rows.length;
+        const grid = rows.map(r => r.padEnd(w, '.'));
+        const tileNames = ['groundTop', 'ground', 'platform', 'spikes', 'goal', 'deco'].map(k => style + cap(k)).concat(PQ_MARKERS);
+        const cells = [], walls = [];
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+            const c = grid[y][x];
+            let t = 0;
+            if (c === '#') t = (y > 0 && grid[y - 1][x] === '#') ? 2 : 1;
+            else if (c === '=') t = 3; else if (c === '^') t = 4; else if (c === 'G') t = 5; else if (c === 'd') t = 6;
+            else if (PQ_MARKER_CHARS.indexOf(c) >= 0) t = 7 + PQ_MARKER_CHARS.indexOf(c);
+            else if (c !== '.') throw new Error(name + ': unbekanntes Zeichen ' + c);
+            cells.push(t); walls.push(c === '#' || c === '=' ? 1 : 0);
+        }
+        return { name, w, h, grid: cells, walls, tileNames };
+    }
+
+    // Kleine Beispielwelt für den Pixel-Quest-Export (56 x 10)
+    function exampleWorldRows() {
+        const W = 56, H = 10, g = Array.from({ length: H }, () => Array(W).fill('.'));
+        const put = (ch, row, ...cols) => cols.forEach(c => g[row][c] = ch);
+        for (let x = 0; x < W; x++) { g[8][x] = '#'; g[9][x] = '#'; }
+        for (let y = 0; y < H; y++) { g[y][0] = '#'; g[y][W - 1] = '#'; }
+        [14, 15, 30, 31, 32].forEach(x => { g[8][x] = '.'; g[9][x] = '.'; });
+        for (let x = 8; x <= 10; x++) g[6][x] = '='; for (let x = 20; x <= 23; x++) g[5][x] = '=';
+        for (let x = 26; x <= 28; x++) g[3][x] = '='; for (let x = 40; x <= 43; x++) g[6][x] = '=';
+        put('c', 7, 4, 5, 6, 46, 47, 48); put('c', 5, 9, 10); put('c', 4, 21, 22); put('c', 6, 14, 15); put('c', 5, 30, 31, 32);
+        put('g', 2, 27); put('C', 7, 18); put('H', 7, 36);
+        put('e', 7, 12, 24, 44); put('f', 4, 34); put('^', 7, 38, 39); put('d', 7, 3, 17, 50);
+        put('P', 7, 2); put('G', 7, 53);
+        return g.map(r => r.join(''));
+    }
+
+    /**
+     * Baut ein MakeCode-Arcade-Projekt mit allen Assets eines Biom/Seed-Sets.
+     * opts.pixelquest = true: Pixel-Quest-Projekt (Asset-Namen der Engine, Markierungs-Kacheln, Beispielwelt „welt1“)
+     * Rückgabe: { files, mkcd, name, names }
+     */
+    function makecodeProject(opts) {
+        opts = opts || {};
+        const seed = opts.seed || '1', biome = opts.biome || 'grass', B = biome;
+        const name = opts.name || ('assets-' + biome + '-' + seed);
+        let spec, mainTs;
+        if (opts.pixelquest) {
+            spec = pixelquestAssets({ styles: [{ style: biome, seed }], char: opts.char, bossType: opts.boss || 'knight', bossSeed: seed, itemSeed: seed, enemySeed: seed });
+            spec.tilemaps = [asciiLevel('welt1', exampleWorldRows(), biome)];
+            mainTs = [
+                `pixelquest.setWorld(1, tilemap\`welt1\`, pixelquest.Style.${PQ_STYLE_ENUM[PQ_STYLES.indexOf(biome)]})`,
+                'pixelquest.setLives(3)',
+                'pixelquest.startGame()',
+                '',
+            ].join('\n');
+        } else {
+            const bg = background(biome, seed), t = tileset(biome, seed), ch = character(opts.char || {});
+            const it = items(seed), bo = boss(opts.boss || 'golem', seed);
+            const [walkerType, flyerType] = BIOME_ENEMIES[biome];
+            const walker = enemy(walkerType, seed), flyer = enemy(flyerType, seed);
+            const images = [], anims = [];
+            const addImg = (n, p) => images.push({ name: n, p }), addAnim = (n, frames, interval) => anims.push({ name: n, frames, interval });
+            addImg(B + 'Sky', bg.sky); addImg(B + 'Far', bg.far); addImg(B + 'Near', bg.near);
+            addImg('heroStand', ch.idle[0]); addImg('heroJump', ch.jump[0]); addImg('heroFall', ch.fall[0]);
+            addAnim('heroRun', ch.run, 100); addAnim('heroRunLeft', ch.run.map(f => f.flipX()), 100);
+            addAnim('heroIdle', [ch.idle[0], ch.idle[0], ch.idle[0], ch.idle[1]], 250);
+            addImg(walkerType, walker.walk[0]); addAnim(walkerType + 'Walk', walker.walk, 150); addImg(walkerType + 'Dead', walker.dead);
+            addImg(flyerType, flyer.walk[0]); addAnim(flyerType + 'Fly', flyer.walk, 100); addImg(flyerType + 'Dead', flyer.dead);
+            addImg('boss', bo.walk[0]); addAnim('bossWalk', bo.walk, 250); addImg('bossAttack', bo.attack); addImg('bossHurt', bo.hurt);
+            addImg('coin', it.coin[0]); addAnim('coinSpin', it.coin, 120);
+            ['gem', 'heart', 'shot', 'fire', 'slash', 'chestClosed', 'chestOpen'].forEach(k => addImg(k, it[k]));
+            const tiles = ['groundTop', 'ground', 'platform', 'spikes', 'goal', 'deco'].map(k => ({ name: B + cap(k), p: t[k] }));
+            const rows = [
+                '................................',
+                '................................',
+                '.........===..........====......',
+                '................................',
+                '....d.........===..........d..G.',
+                '######...######....####^^#######',
+                '######...######....#############',
+                '######...######....#############',
+            ];
+            const lvl = asciiLevel('demoLevel', rows, biome);
+            lvl.tileNames = lvl.tileNames.slice(0, 6);
+            spec = { images, anims, tiles, tilemaps: [lvl] };
+            mainTs = [
+                `scene.setBackgroundImage(assets.image\`${B}Sky\`)`,
+                'tiles.setCurrentTilemap(tilemap`demoLevel`)',
+                'let hero = sprites.create(assets.image`heroStand`, SpriteKind.Player)',
+                'controller.moveSprite(hero, 80, 0)',
+                'hero.ay = 400',
+                'tiles.placeOnTile(hero, tiles.getTileLocation(1, 4))',
+                'scene.cameraFollowSprite(hero)',
+                'animation.runImageAnimation(hero, assets.animation`heroIdle`, 250, true)',
+                'let coin = sprites.create(assets.image`coin`, SpriteKind.Food)',
+                'tiles.placeOnTile(coin, tiles.getTileLocation(10, 1))',
+                'animation.runImageAnimation(coin, assets.animation`coinSpin`, 120, true)',
+                'controller.A.onEvent(ControllerButtonEvent.Pressed, function () {',
+                '    if (hero.isHittingTile(CollisionDirection.Bottom)) {',
+                '        hero.vy = -170',
+                '    }',
+                '})',
+                'sprites.onOverlap(SpriteKind.Player, SpriteKind.Food, function (sprite, otherSprite) {',
+                '    otherSprite.destroy(effects.confetti, 200)',
+                '    info.changeScoreBy(10)',
+                '})',
+                '',
+            ].join('\n');
+        }
         const readme = `# ${name}\n\nErzeugt mit dem Arcade Asset Generator (Seed "${seed}", Biom ${biome}).\n` +
-            'Alle Bilder, Animationen und Kacheln liegen im Assets-Tab und in der Bild-Galerie „Meine Assets“.\n';
-        const files = {
+            'Alle Bilder, Animationen und Kacheln liegen im Assets-Tab und in der Bild-Galerie „Meine Assets“.\n' +
+            (opts.pixelquest ? '\nPixel-Quest: Die Engine nimmt Assets mit ihren festen Namen (z. B. heroRun, grassSky) aus diesem Projekt; ' +
+                'die Welt „welt1“ lässt sich im Tilemap-Editor bearbeiten, Spielobjekte werden mit den pq…-Kacheln gesetzt.\n' : '');
+        const files = Object.assign({
             'pxt.json': JSON.stringify({
                 name, description: 'Assets aus dem Arcade Asset Generator', dependencies: Object.assign({ device: '*' }, opts.extensions || {}),
                 files: ['main.blocks', 'main.ts', 'README.md', 'assets.json', 'images.g.jres', 'images.g.ts', 'tilemap.g.jres', 'tilemap.g.ts'],
@@ -914,24 +1034,21 @@
             'main.ts': mainTs,
             'README.md': readme,
             'assets.json': '',
-            'images.g.jres': JSON.stringify(imgJres, null, 4),
-            'images.g.ts': imgTs,
-            'tilemap.g.jres': JSON.stringify(tmJres, null, 4),
-            'tilemap.g.ts': tmTs,
-        };
-        const mkcd = JSON.stringify({
-            meta: { cloudId: 'pxt/arcade', editor: 'blocksprj', name },
-            source: JSON.stringify(files, null, 2),
-        });
+        }, buildAssetFiles(spec));
+        const mkcd = JSON.stringify({ meta: { cloudId: 'pxt/arcade', editor: 'blocksprj', name }, source: JSON.stringify(files, null, 2) });
         return {
             files, mkcd, name,
-            names: { images: images.map(i => i.display), animations: anims.map(a => a.display), tiles: tileList.filter(t => t.display).map(t => t.display), tilemaps: ['demoLevel'] },
+            names: {
+                images: spec.images.map(i => i.name), animations: spec.anims.map(a => a.name),
+                tiles: spec.tiles.map(t => t.name), tilemaps: spec.tilemaps.map(t => t.name),
+            },
         };
     }
     const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
 
     return {
-        makecodeProject, f4Bytes, EXTENSIONS,
+        makecodeProject, buildAssetFiles, pixelquestAssets, markers, asciiLevel, exampleWorldRows,
+        PQ_STYLES, PQ_STYLE_ENUM, PQ_MARKERS, PQ_MARKER_CHARS, f4Bytes, EXTENSIONS,
         PALETTE, COLOR_NAMES, HEX, DARK, LIGHT, Pix, makeRand, hashSeed,
         BIOMES, ENEMY_TYPES, BIOME_ENEMIES, BOSS_TYPES, HAIR_STYLES, HATS, CHAR_DEFAULTS,
         background, tileset, character, randomCharacter, enemy, boss, items,

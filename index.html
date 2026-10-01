@@ -106,7 +106,7 @@
         <label for="zoom">Zoom <input type="range" id="zoom" min="1" max="6" value="3"></label>
         <span class="spacer"></span>
         <button id="exportAll">Komplettes Set als Code</button>
-        <label for="withPixelquest" title="Die Erweiterung wird beim Import automatisch geladen; ihre Blöcke erscheinen in der Kategorie Pixel-Quest."><input type="checkbox" id="withPixelquest" checked> mit Pixel-Quest-Erweiterung</label>
+        <label for="withPixelquest" title="Spielbares Pixel-Quest-Projekt: Erweiterung, Assets unter den Namen der Engine, Markierungs-Kacheln und eine Beispielwelt im Tilemap-Editor."><input type="checkbox" id="withPixelquest" checked> als Pixel-Quest-Spiel</label>
         <button class="primary" id="exportProject">Als MakeCode-Projekt speichern</button>
     </div>
 
@@ -591,7 +591,9 @@
 
     async function exportProject() {
         const extensions = $('withPixelquest').checked ? { pixelquest: G.EXTENSIONS.pixelquest.spec } : {};
-        const p = G.makecodeProject({ seed: state.seed, biome: state.biome, char: state.char, boss: state.boss, name: 'pixel-assets-' + state.biome + '-' + state.seed, extensions });
+        const pq = $('withPixelquest').checked;
+        const p = G.makecodeProject({ seed: state.seed, biome: state.biome, char: state.char, boss: state.boss, pixelquest: pq,
+            name: (pq ? 'pixel-quest-' : 'pixel-assets-') + state.biome + '-' + state.seed, extensions });
         // PNG mit eingebettetem Projekt: im Claude-Artifact erlaubt und von MakeCode direkt importierbar
         const fileName = p.name + '.png';
         renderProjectInfo(p, fileName);
@@ -606,7 +608,9 @@
             '<ol><li>Auf <a href="https://arcade.makecode.com" target="_blank" rel="noopener">arcade.makecode.com</a> <strong>Importieren → Datei importieren</strong> wählen.</li>' +
             '<li>Die gespeicherte Datei <code>' + fileName + '</code> auswählen – das Bild enthält das ganze Projekt, es entsteht ein neues Projekt mit Demo-Level.</li>' +
             '<li>Alle Grafiken stehen im Tab <strong>Assets</strong> und in jedem Bild-Block unter <strong>Meine Assets</strong> zur Auswahl.</li>' +
-            ($('withPixelquest').checked ? '<li>Die <strong>Pixel-Quest-Erweiterung</strong> wird beim Öffnen automatisch geladen (Block-Kategorie „Pixel-Quest“).</li>' : '') + '</ol>' +
+            ($('withPixelquest').checked ? '<li>Die <strong>Pixel-Quest-Erweiterung</strong> wird beim Öffnen automatisch geladen. Das Spiel startet sofort; ' +
+                'die Welt <code>welt1</code> bearbeitest du im Tilemap-Editor (Block „Welt 1 Karte …“). Spielobjekte setzt du mit den Kacheln ' +
+                '<code>pqStart</code>, <code>pqCoin</code>, <code>pqWalker</code> … – Welten 2 und 3 nimmt die Engine aus ihrem Vorrat.</li>' : '') + '</ol>' +
             '<p class="hint">Startet kein Download (z. B. in einer eingebetteten Vorschau), die Seite direkt öffnen: ' +
             '<a href="https://theodorthg.github.io/arcade-asset-generator/" target="_blank" rel="noopener">theodorthg.github.io/arcade-asset-generator</a></p>' +
             list('Bilder', p.names.images, n => 'assets.image' + tick + n + tick) +
