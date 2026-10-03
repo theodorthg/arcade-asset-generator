@@ -2013,7 +2013,7 @@
     // Erweiterungen, die der Export optional einbinden kann (Name -> pxt.json-Abhängigkeit)
     const EXTENSIONS = {
         pixelquest: { label: 'Pixel-Quest-Erweiterung', spec: 'github:theodorthg/pxt-pixelquest#v0.5.1' },
-        pixelshooter: { label: 'Pixel-Shooter-Erweiterung', spec: 'github:theodorthg/pxt-pixelshooter#v0.1.0' },
+        pixelshooter: { label: 'Pixel-Shooter-Erweiterung', spec: 'github:theodorthg/pxt-pixelshooter#v0.2.0' },
     };
 
     // =====================================================================
@@ -2295,10 +2295,10 @@
     function shooterProject(opts) {
         opts = opts || {};
         const seed = opts.seed || '1', stages = opts.stages && opts.stages.length ? opts.stages : ['space', 'sea', 'desert'];
-        const name = opts.name || ('pixel-shooter-' + stages.join('-') + '-' + seed);
+        const name = opts.name || ('pixel-shooter-' + (opts.horizontal ? 'h-' : '') + stages.join('-') + '-' + seed);
         const spec = shooterAssets({ stages, seed });
-        const mainTs = stages.map((st, i) => `pixelshooter.setStage(${i + 1}, pixelshooter.Style.${PS_STYLE_ENUM[PS_STYLES.indexOf(st)]})`)
-            .concat([`pixelshooter.setStageCount(${stages.length})`, `pixelshooter.setMaxPlayers(${opts.players || 2})`, 'pixelshooter.setLives(3)', 'pixelshooter.startGame()', '']).join('\n');
+        const mainTs = (opts.horizontal ? ['pixelshooter.setDirection(pixelshooter.Direction.Right)'] : []).concat(stages.map((st, i) => `pixelshooter.setStage(${i + 1}, pixelshooter.Style.${PS_STYLE_ENUM[PS_STYLES.indexOf(st)]})`)
+            .concat([`pixelshooter.setStageCount(${stages.length})`, `pixelshooter.setMaxPlayers(${opts.players || 2})`, 'pixelshooter.setLives(3)', 'pixelshooter.startGame()', ''])).join('\n');
         const readme = `# ${name}\n\nErzeugt mit dem Arcade Asset Generator (Seed "${seed}"). Pixel-Shooter: senkrecht scrollender Shooter für bis zu 4 Spieler.\n` +
             'Weitere Spieler steigen mit A auf ihrem Controller ein, auch online im Mehrspieler-Modus. Alle Grafiken liegen im Assets-Tab ' +
             '(Namen wie shShip1, shFighter, shBoss, shSpaceFar); was du dort änderst, übernimmt das Spiel.\n';

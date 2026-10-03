@@ -163,7 +163,7 @@
     const state = {
         tab: 'bg', seed: '1', biome: 'grass', zoom: 3,
         char: Object.assign({}, G.CHAR_DEFAULTS), enemy: 'slime', boss: 'golem',
-        shStyle: 'space', shStages: ['space', 'sea', 'desert'], shPlayers: 2,
+        shStyle: 'space', shStages: ['space', 'sea', 'desert'], shPlayers: 2, shHorizontal: false,
         sfxType: 'jump', sfx: null, melType: 'start', mel: { key: null, minor: null, tempo: null },
     };
     const TABS = { bg: 'Hintergrund', tiles: 'Tiles', char: 'Spielfigur', enemy: 'Gegner', boss: 'Boss', items: 'Items', sound: 'Sounds', shooter: 'Shooter' };
@@ -656,6 +656,13 @@
         let t = 0;
         const tick = () => {
             t += 1;
+            if (state.shHorizontal) {
+                const xf = -(Math.floor(t * 0.5) % W), xn = -(t % W);
+                ctx.drawImage(far, xf, 0); ctx.drawImage(far, xf + W, 0);
+                ctx.drawImage(near, xn, 0); ctx.drawImage(near, xn + W, 0);
+                [0, 1].forEach(i => { ctx.save(); ctx.translate(20 + 8, (i ? 72 : 36) + Math.round(Math.sin(t / (20 + i * 3)) * 10) + 8); ctx.rotate(Math.PI / 2); ctx.drawImage(ship[i][t >> 2 & 1], -8, -8); ctx.restore(); });
+                return;
+            }
             const yf = Math.floor(t * 0.5) % H, yn = t % H;
             ctx.drawImage(far, 0, yf); ctx.drawImage(far, 0, yf - H);
             ctx.drawImage(near, 0, yn); ctx.drawImage(near, 0, yn - H);
@@ -672,6 +679,7 @@
         ['shot', 'enemyShot', 'power', 'shield', 'bomb', 'life', 'shieldRing'].forEach(k => figure(toCanvas(sh.items[k], state.zoom), k));
         control('Vorschau-Hintergrund', select('shStyle', G.SHOOTER_STYLES, state.shStyle, v => state.shStyle = v), 'shStyle');
         heading('Pixel-Shooter-Spiel');
+        control('Flugrichtung', select('shDir', { up: 'nach oben (senkrecht)', right: 'nach rechts (waagrecht)' }, state.shHorizontal ? 'right' : 'up', v => state.shHorizontal = v === 'right'), 'shDir');
         [0, 1, 2].forEach(i => {
             const opts = i === 0 ? {} : { '': '– keine –' };
             for (const k in G.SHOOTER_STYLES) opts[k] = G.SHOOTER_STYLES[k];
@@ -682,7 +690,7 @@
         });
         control('Spieler', select('shPlayers', { 1: '1 Spieler', 2: 'bis zu 2', 3: 'bis zu 3', 4: 'bis zu 4' }, String(state.shPlayers), v => state.shPlayers = +v), 'shPlayers');
         control('', button('Als Pixel-Shooter-Spiel speichern', 'primary', exportShooter));
-        note('Senkrecht scrollender Shooter: A halten = schießen, B = Bombe. Weitere Spieler steigen mit A auf ihrem Controller ein – auch online im Mehrspieler-Modus von arcade.makecode.com. Jede Stufe endet mit dem Endboss.');
+        note('Senkrecht oder waagrecht scrollender Shooter (die Engine dreht die Figuren im waagrechten Modus selbst): A halten = schießen, B = Bombe. Weitere Spieler steigen mit A auf ihrem Controller ein – auch online im Mehrspieler-Modus von arcade.makecode.com. Jede Stufe endet mit dem Endboss.');
     }
     function shooterStages() {
         const st = [state.shStages[0] || 'space'];
@@ -691,7 +699,7 @@
     }
     function exportShooter() {
         const stages = shooterStages();
-        const p = G.shooterProject({ seed: state.seed, stages, players: state.shPlayers });
+        const p = G.shooterProject({ seed: state.seed, stages, players: state.shPlayers, horizontal: state.shHorizontal });
         const fileName = p.name + '.png';
         renderProjectInfo(p, fileName, 'shooter');
         const bg = G.shooterBackground(stages[0], state.seed), scene = bg.far.clone().blit(bg.near, 0, 0);
