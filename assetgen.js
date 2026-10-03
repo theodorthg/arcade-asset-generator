@@ -2069,6 +2069,93 @@
     }
 
     // =====================================================================
+    //  BROS (Jump & Run zu zweit wie Mario Bros, feste Bühnen 20x15 mit 8x8-Kacheln)
+    // =====================================================================
+    const BROS_STYLES = { brick: 'Ziegelkanal', ice: 'Eiskeller', lava: 'Lavahöhle' };
+    // Legende: # Plattform, = Boden, P POW-Block (2 Felder), ' ' leer. Zeilen 2, 6, 10 = Ebenen, 14 = Boden
+    const BROS_LAYOUTS = [
+        { name: 'Klassisch', rows: ['', '', '########    ########', '', '', '', '###   ########   ###', '', '', '',
+            '#######  PP  #######', '', '', '', '===================='] },
+        { name: 'Brücke', rows: ['', '', '######        ######', '', '', '', '    ############    ', '', '', '',
+            '######   PP   ######', '', '', '', '===================='] },
+        { name: 'Treppen', rows: ['', '', '#######      #######', '', '', '', '##  ####    ####  ##', '', '', '',
+            '#####    PP    #####', '', '', '', '===================='] },
+    ].map(l => ({ name: l.name, rows: l.rows.map(r => (r + ' '.repeat(20)).slice(0, 20)) }));
+    function brosTiles(style) {
+        const T = () => new Pix(8, 8);
+        let platform, floor;
+        if (style === 'ice') {
+            platform = T().rect(0, 0, 8, 8, 9).rect(0, 0, 8, 1, 1).rect(0, 7, 8, 1, 8).set(2, 3, 1).set(5, 5, 1).set(6, 2, 1);
+            floor = T().rect(0, 0, 8, 8, 8).rect(0, 0, 8, 2, 9).rect(0, 0, 8, 1, 1).set(3, 4, 9).set(6, 6, 9);
+        } else if (style === 'lava') {
+            platform = T().rect(0, 0, 8, 8, 0xc).rect(0, 0, 8, 1, 4).rect(0, 7, 8, 1, 0xf).set(2, 3, 0xf).set(5, 4, 2).set(6, 2, 0xf);
+            floor = T().rect(0, 0, 8, 8, 0xf).rect(0, 0, 8, 2, 0xc).rect(0, 0, 8, 1, 2).set(2, 5, 4).set(3, 6, 2).set(6, 4, 2);
+        } else {
+            platform = T().rect(0, 0, 8, 8, 4).rect(0, 0, 8, 1, 5).rect(0, 3, 8, 1, 0xe).rect(0, 7, 8, 1, 0xe).set(3, 1, 0xe).set(3, 2, 0xe).set(7, 4, 0xe).set(7, 5, 0xe).set(7, 6, 0xe);
+            floor = T().rect(0, 0, 8, 8, 0xe).rect(0, 0, 8, 1, 4).rect(0, 4, 8, 1, 0xf).set(2, 1, 0xf).set(2, 2, 0xf).set(2, 3, 0xf).set(6, 5, 0xf).set(6, 6, 0xf).set(6, 7, 0xf);
+        }
+        const pow = new Pix(16, 8).rect(0, 0, 16, 8, 8).rect(0, 0, 16, 1, 9).rect(0, 0, 1, 8, 9).rect(0, 7, 16, 1, 0xc).rect(15, 0, 1, 8, 0xc);
+        const L = { P: ['111', '101', '111', '100', '100'], O: ['111', '101', '101', '101', '111'], W: ['101', '101', '101', '111', '101'] };
+        ['P', 'O', 'W'].forEach((ch, i) => L[ch].forEach((row, y) => [...row].forEach((v, x) => { if (v === '1') pow.set(2 + i * 4 + x, 1 + y, 1); })));
+        const half = (x0) => { const p = T(); for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) p.set(x, y, pow.get(x0 + x, y)); return p; };
+        return { platform, floor, powL: half(0), powR: half(8) };
+    }
+    // Spielfigur 12x14, schaut nach rechts: [Stand, Lauf 1, Lauf 2, Sprung]
+    function brosHero(color) {
+        const pants = color === 8 || color === 9 ? 0xc : 8;
+        const f = (legs, jump) => {
+            const p = new Pix(12, 14);
+            p.rect(3, 0, 6, 2, color).rect(3, 2, 8, 1, color).set(4, 0, LIGHT[color]);
+            p.rect(3, 3, 6, 4, 0xd).rect(3, 3, 1, 3, 0xe).set(7, 4, 0xf).set(9, 5, 0xd).rect(6, 6, 3, 1, 0xe);
+            p.rect(2, 7, 8, 4, color).rect(4, 8, 4, 3, pants).set(4, 7, pants).set(7, 7, pants);
+            if (jump) p.rect(9, 4, 2, 3, 0xd); else p.rect(9, 8, 1, 2, 0xd);
+            if (legs === 0) p.rect(3, 11, 2, 2, pants).rect(7, 11, 2, 2, pants).rect(3, 13, 3, 1, 0xe).rect(7, 13, 3, 1, 0xe);
+            else if (legs === 1) p.rect(2, 11, 2, 2, pants).rect(8, 11, 2, 2, pants).rect(1, 13, 3, 1, 0xe).rect(8, 13, 3, 1, 0xe);
+            else p.rect(4, 11, 4, 2, pants).rect(4, 13, 5, 1, 0xe);
+            return p;
+        };
+        return [f(0), f(1), f(2), f(1, true)];
+    }
+    // Gegner 12x12, schauen nach rechts: turtle (Panzerkröte), crab (Krabbe, 2 Stöße), fly (Hüpffliege)
+    function brosEnemy(type, angry) {
+        const f = (k) => {
+            const p = new Pix(12, 12);
+            if (type === 'crab') {
+                const c = angry ? 0xa : 2;
+                p.ellipse(5.5, 7, 4.5, 2.6, c).rect(3, 6, 6, 1, LIGHT[c]);
+                p.circle(1, 4 - k, 1.4, c).circle(10, 4 - k, 1.4, c).set(1, 3 - k, 0).set(10, 3 - k, 0);
+                p.rect(4, 2, 1, 3, c).rect(7, 2, 1, 3, c).set(4, 2, 1).set(7, 2, 1).set(4, 1, 0xf).set(7, 1, 0xf);
+                for (let i = 0; i < 3; i++) { p.set(2 + i * 3 + k, 10, DARK[c]); p.set(3 + i * 3 - k, 11, DARK[c]); }
+            } else if (type === 'fly') {
+                const c = angry ? 2 : 0xf;
+                p.circle(6, 7, 3, c).set(8, 6, 2).set(9, 6, 2).set(5, 8, 0xb);
+                if (k) p.ellipse(4, 3, 2.5, 1.5, 1).ellipse(8, 3, 2.5, 1.5, 9); else p.ellipse(3, 6, 2.5, 1.2, 1).ellipse(9, 4, 2.5, 1.2, 9);
+                p.set(4 + k, 10, 0xf).set(7 - k, 10, 0xf).set(4 + k, 11, 0xf).set(7 - k, 11, 0xf);
+            } else {
+                const c = angry ? 2 : 7;
+                p.ellipse(5, 6, 4.4, 3.4, c).rect(2, 9, 7, 1, DARK[c]);
+                p.set(3, 4, LIGHT[c]).set(4, 3, LIGHT[c]).set(5, 5, DARK[c]).set(3, 7, DARK[c]).set(7, 6, DARK[c]);
+                p.circle(10, 6, 1.5, 5).set(11, 5, 0xf).set(11, 7, 4);
+                p.rect(2 + k, 10, 2, 2, 4).rect(7 - k, 10, 2, 2, 4);
+            }
+            return p;
+        };
+        return [f(0), f(1)];
+    }
+    function brosCoin() {
+        const a = new Pix(8, 8).circle(3.5, 3.5, 3.4, 5).circle(3.5, 3.5, 2, 4).rect(3, 2, 1, 4, 5).set(2, 1, 1);
+        const b = new Pix(8, 8).ellipse(3.5, 3.5, 1.6, 3.4, 5).rect(3, 2, 2, 4, 4).set(3, 1, 1);
+        return [a, b];
+    }
+    // Röhre 16x16, Öffnung rechts
+    function brosPipe(style) {
+        const c = style === 'ice' ? 9 : style === 'lava' ? 4 : 7;
+        const p = new Pix(16, 16).rect(0, 3, 12, 10, c).rect(0, 4, 12, 2, LIGHT[c]).rect(0, 11, 12, 2, DARK[c]);
+        p.rect(11, 1, 5, 14, c).rect(11, 1, 5, 1, LIGHT[c]).rect(11, 2, 1, 12, LIGHT[c]).rect(11, 14, 5, 1, DARK[c]).rect(15, 1, 1, 14, DARK[c]).rect(13, 3, 2, 10, DARK[c]);
+        return p;
+    }
+
+    // =====================================================================
     //  Export-Helfer
     // =====================================================================
     function framesToTS(name, frames, indent) {
@@ -2198,6 +2285,7 @@
         pixelshooter: { label: 'Pixel-Shooter-Erweiterung', spec: 'github:theodorthg/pxt-pixelshooter#v0.2.0' },
         pixelracer: { label: 'Pixel-Racer-Erweiterung', spec: 'github:theodorthg/pxt-pixelracer#v0.1.0' },
         pixelmaze: { label: 'Pixel-Maze-Erweiterung', spec: 'github:theodorthg/pxt-pixelmaze#v0.1.0' },
+        pixelbros: { label: 'Pixel-Bros-Erweiterung', spec: 'github:theodorthg/pxt-pixelbros#v0.1.0' },
     };
 
     // =====================================================================
@@ -2582,7 +2670,61 @@
         return { files, mkcd, name, names: { images: images.map(i => i.name), animations: anims.map(a => a.name), tiles: tiles.map(t => t.name), tilemaps: tilemaps.map(t => t.name) } };
     }
 
+    // =====================================================================
+    //  PIXEL-BROS: Projekt mit Bühnen (buehne1 …) im Tilemap-Editor
+    // =====================================================================
+    const PB_STYLES = ['brick', 'ice', 'lava'];
+    const PB_STYLE_ENUM = ['Brick', 'Ice', 'Lava'];
+    const PB_ENEMIES = ['turtle', 'crab', 'fly'];
+    function brosStage(name, rows, style) {
+        const names = ['platform', 'floor', 'powL', 'powR'].map(k => 'pb' + cap(style) + cap(k));
+        const cells = [], walls = [];
+        rows.forEach(r => { let pw = 0; [...r].forEach(c => {
+            const v = c === '#' ? 1 : c === '=' ? 2 : c === 'P' ? (pw++ % 2 ? 4 : 3) : 0;
+            cells.push(v); walls.push(v ? 1 : 0);
+        }); });
+        return { name, w: 20, h: 15, grid: cells, walls, tileNames: names, tileSize: 8 };
+    }
+    /** opts.stages: [{layout: 0..2, style}], opts.players, opts.lives, opts.phases (Phasen je Bühne) */
+    function brosProject(opts) {
+        opts = opts || {};
+        const stages = opts.stages && opts.stages.length ? opts.stages : [{ layout: 0, style: 'brick' }, { layout: 1, style: 'ice' }, { layout: 2, style: 'lava' }];
+        const name = opts.name || ('pixel-bros-' + stages.map(s => s.style).join('-'));
+        const anims = [], images = [], tiles = [];
+        [2, 7, 9, 5].forEach((c, i) => anims.push({ name: 'pbHero' + (i + 1), frames: brosHero(c), interval: 100 }));
+        PB_ENEMIES.forEach(t => {
+            anims.push({ name: 'pb' + cap(t), frames: brosEnemy(t, false), interval: 150 });
+            anims.push({ name: 'pb' + cap(t) + 'Angry', frames: brosEnemy(t, true), interval: 100 });
+        });
+        anims.push({ name: 'pbCoin', frames: brosCoin(), interval: 150 });
+        const used = stages.map(s => s.style).filter((v, i, a) => a.indexOf(v) === i);
+        used.forEach(st => {
+            const t = brosTiles(st);
+            ['platform', 'floor', 'powL', 'powR'].forEach(k => tiles.push({ name: 'pb' + cap(st) + cap(k), p: t[k] }));
+            images.push({ name: 'pb' + cap(st) + 'Pipe', p: brosPipe(st) });
+        });
+        const tilemaps = stages.map((s, i) => brosStage('buehne' + (i + 1), BROS_LAYOUTS[s.layout % BROS_LAYOUTS.length].rows, s.style));
+        const spec = { images, anims, tiles, tilemaps, tileSize: 8 };
+        const mainTs = stages.map((s, i) => `pixelbros.setStage(${i + 1}, tilemap\`buehne${i + 1}\`, pixelbros.Style.${PB_STYLE_ENUM[PB_STYLES.indexOf(s.style)]})`)
+            .concat([`pixelbros.setLives(${opts.lives || 3})`, `pixelbros.setMaxPlayers(${opts.players || 4})`, `pixelbros.setPhasesPerStage(${opts.phases || 3})`, 'pixelbros.startGame()', '']).join('\n');
+        const readme = `# ${name}\n\nErzeugt mit dem Arcade Asset Generator. Pixel-Bros: Jump & Run für 1 bis 4 Spieler gleichzeitig auf festen Bühnen. ` +
+            'Stoß Gegner von unten um und kick sie weg. Weitere Spieler steigen mit A ein, auch online im Mehrspieler-Modus.\n' +
+            'Die Bühnen buehne1 … bearbeitest du im Tilemap-Editor (8x8-Kacheln, 20x15 Felder).\n';
+        const files = Object.assign({
+            'pxt.json': JSON.stringify({
+                name, description: 'Pixel-Bros aus dem Arcade Asset Generator',
+                dependencies: { device: '*', pixelbros: EXTENSIONS.pixelbros.spec },
+                files: ['main.blocks', 'main.ts', 'README.md', 'assets.json', 'images.g.jres', 'images.g.ts', 'tilemap.g.jres', 'tilemap.g.ts'],
+                preferredEditor: 'blocksprj',
+            }, null, 4),
+            'main.blocks': '', 'main.ts': mainTs, 'README.md': readme, 'assets.json': '',
+        }, buildAssetFiles(spec));
+        const mkcd = JSON.stringify({ meta: { cloudId: 'pxt/arcade', editor: 'blocksprj', name }, source: JSON.stringify(files, null, 2) });
+        return { files, mkcd, name, names: { images: images.map(i => i.name), animations: anims.map(a => a.name), tiles: tiles.map(t => t.name), tilemaps: tilemaps.map(t => t.name) } };
+    }
+
     return {
+        brosProject, PB_STYLES, PB_STYLE_ENUM, PB_ENEMIES, BROS_STYLES, BROS_LAYOUTS, brosTiles, brosHero, brosEnemy, brosCoin, brosPipe,
         mazeProject, MZ_STYLES,
         racerProject, PR_STYLES,
         shooterAssets, shooterProject, PS_STYLES, PS_STYLE_ENUM,

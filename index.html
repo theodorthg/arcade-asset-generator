@@ -166,9 +166,10 @@
         shStyle: 'space', shStages: ['space', 'sea', 'desert'], shPlayers: 2, shHorizontal: false,
         rcTracks: [{ track: 0, style: 'grass' }, { track: 1, style: 'desert' }, { track: 2, style: 'snow' }], rcLaps: 3, rcPlayers: 4,
         mzMazes: [{ seed: '1', style: 'neon' }, { seed: '2', style: 'candy' }, { seed: '7', style: 'hedge' }], mzPlayers: 4,
+        pbStages: [{ layout: 0, style: 'brick' }, { layout: 1, style: 'ice' }, { layout: 2, style: 'lava' }], pbPlayers: 4, pbPhases: 3,
         sfxType: 'jump', sfx: null, melType: 'start', mel: { key: null, minor: null, tempo: null },
     };
-    const TABS = { bg: 'Hintergrund', tiles: 'Tiles', char: 'Spielfigur', enemy: 'Gegner', boss: 'Boss', items: 'Items', sound: 'Sounds', shooter: 'Shooter', racer: 'Racing', maze: 'Maze' };
+    const TABS = { bg: 'Hintergrund', tiles: 'Tiles', char: 'Spielfigur', enemy: 'Gegner', boss: 'Boss', items: 'Items', sound: 'Sounds', shooter: 'Shooter', racer: 'Racing', maze: 'Maze', bros: 'Bros' };
     let timers = [];
 
     // ---------- Aufbau
@@ -304,6 +305,7 @@
             case 'sound': return {};
             case 'racer': return { racer: true };
             case 'maze': return { maze: true };
+            case 'bros': return { bros: true };
             case 'shooter': {
                 const b = G.shooterBoss(s);
                 return { shooter: {
@@ -321,6 +323,12 @@
     }
     function codeFor(d) {
         const b = cap(state.biome);
+        if (state.tab === 'bros') {
+            let t = 'namespace brosGfx {\n';
+            [2, 7, 9, 5].forEach((c, i) => t += G.framesToTS('hero' + (i + 1), G.brosHero(c)));
+            G.PB_ENEMIES.forEach(e => t += G.framesToTS(e, G.brosEnemy(e, false)));
+            return t + '}\n';
+        }
         if (state.tab === 'maze') {
             let t = 'namespace mazeGfx {\n';
             [5, 7, 3, 9].forEach((c, i) => t += G.framesToTS('hero' + (i + 1), G.mazeHero(c)));
@@ -535,6 +543,7 @@
         if (state.tab === 'shooter') renderShooter(d.shooter);
         if (state.tab === 'racer') renderRacer();
         if (state.tab === 'maze') renderMaze();
+        if (state.tab === 'bros') renderBros();
         $('code').value = codeFor(d);
     }
 
@@ -754,6 +763,55 @@
         const canvas = encodeBlobIntoCanvas(cover, new TextEncoder().encode(p.mkcd));
         canvas.toBlob(blob => saveFile(fileName, blob), 'image/png');
     }
+    // ---------- Bros-Tab
+    function brosPix(st) {
+        const tl = G.brosTiles(st.style), p = new G.Pix(160, 120);
+        p.rect(0, 0, 160, 120, st.style === 'ice' ? 0xc : 0xf);
+        G.BROS_LAYOUTS[st.layout].rows.forEach((r, y) => { let pw = 0; [...r].forEach((c, x) => {
+            const t = c === '#' ? tl.platform : c === '=' ? tl.floor : c === 'P' ? (pw++ % 2 ? tl.powR : tl.powL) : null;
+            if (t) p.blit(t, x * 8, y * 8);
+        }); });
+        const pipe = G.brosPipe(st.style), pl = pipe.flipX();
+        p.blit(pipe, 0, 0).blit(pl, 144, 0).blit(pipe, 0, 96).blit(pl, 144, 96);
+        p.blit(G.brosHero(2)[0], 34, 98).blit(G.brosHero(7)[1].flipX(), 114, 98);
+        p.blit(G.brosEnemy('turtle', false)[0], 30, 4).blit(G.brosEnemy('crab', false)[0], 90, 36).blit(G.brosCoin()[0], 130, 72);
+        return p;
+    }
+    function renderBros() {
+        state.pbStages.forEach((st, i) => { if (st) figure(toCanvas(brosPix(st), Math.max(2, state.zoom - 1)), 'Bühne ' + (i + 1) + ': ' + G.BROS_LAYOUTS[st.layout].name); });
+        [2, 7, 9, 5].forEach((c, i) => animFigure(G.brosHero(c).slice(0, 3), 'Spieler ' + (i + 1), 110));
+        const EN = { turtle: 'Panzerkröte', crab: 'Krabbe', fly: 'Hüpffliege' };
+        G.PB_ENEMIES.forEach(e => { animFigure(G.brosEnemy(e, false), EN[e], 160); animFigure(G.brosEnemy(e, true), EN[e] + ' (wütend)', 110); });
+        animFigure(G.brosCoin(), 'Münze', 150);
+        const layouts = {}; G.BROS_LAYOUTS.forEach((l, i) => layouts[i] = l.name);
+        [0, 1, 2].forEach(i => {
+            const st = state.pbStages[i];
+            const opts = i === 0 ? { on: 'an' } : { '': '– keine –', on: 'an' };
+            control('Bühne ' + (i + 1), select('pbOn' + i, opts, st ? 'on' : '', v => {
+                state.pbStages[i] = v ? (st || { layout: i, style: 'brick' }) : null;
+                if (!state.pbStages[1]) state.pbStages[2] = null;
+            }), 'pbOn' + i);
+            if (st) {
+                control('Aufbau ' + (i + 1), select('pbLayout' + i, layouts, String(st.layout), v => st.layout = +v), 'pbLayout' + i);
+                control('Stil ' + (i + 1), select('pbStyle' + i, G.BROS_STYLES, st.style, v => st.style = v), 'pbStyle' + i);
+            }
+        });
+        control('Phasen je Bühne', select('pbPhases', { 1: '1', 2: '2', 3: '3', 4: '4', 5: '5' }, String(state.pbPhases), v => state.pbPhases = +v), 'pbPhases');
+        control('Spieler', select('pbPlayers', { 1: '1 Spieler', 2: 'bis zu 2', 3: 'bis zu 3', 4: 'bis zu 4' }, String(state.pbPlayers), v => state.pbPlayers = +v), 'pbPlayers');
+        control('', button('Als Pixel-Bros-Spiel speichern', 'primary', exportBros));
+        note('Jump & Run für bis zu 4 Spieler gleichzeitig auf festen Bühnen, wie Mario Bros: Gegner kommen aus den Röhren, werden von unten umgestoßen und dann weggekickt. Krabben brauchen zwei Stöße, Fliegen hüpfen. Der POW-Block stößt alle auf einmal um. Im Eiskeller ist der Boden rutschig. Weitere Spieler steigen mit A ein – auch online.');
+    }
+    function exportBros() {
+        const stages = state.pbStages.filter(s => s);
+        const p = G.brosProject({ stages, players: state.pbPlayers, phases: state.pbPhases });
+        const fileName = p.name + '.png';
+        renderProjectInfo(p, fileName, 'bros');
+        const small = toCanvas(brosPix(stages[0]), 1), cover = document.createElement('canvas');
+        cover.width = 320; cover.height = 240;
+        const ctx = cover.getContext('2d'); ctx.imageSmoothingEnabled = false; ctx.drawImage(small, 0, 0, 320, 240);
+        const canvas = encodeBlobIntoCanvas(cover, new TextEncoder().encode(p.mkcd));
+        canvas.toBlob(blob => saveFile(fileName, blob), 'image/png');
+    }
     // ---------- Maze-Tab
     function mazePix(m) {
         const tl = G.mazeTiles(m.style, '1'), map = { ' ': tl.floor, '#': tl.wall, '.': tl.dot, 'o': tl.power, 'P': tl.floor, 'G': tl.house };
@@ -838,7 +896,9 @@
             '<ol><li>Auf <a href="https://arcade.makecode.com" target="_blank" rel="noopener">arcade.makecode.com</a> <strong>Importieren → Datei importieren</strong> wählen.</li>' +
             '<li>Die gespeicherte Datei <code>' + fileName + '</code> auswählen – das Bild enthält das ganze Projekt, es entsteht ein neues Projekt mit Demo-Level.</li>' +
             '<li>Alle Grafiken stehen im Tab <strong>Assets</strong> und in jedem Bild-Block unter <strong>Meine Assets</strong> zur Auswahl.</li>' +
-            (kind === 'maze' ? '<li>Die <strong>Pixel-Maze-Erweiterung</strong> wird beim Öffnen automatisch geladen. Die Labyrinthe ' +
+            (kind === 'bros' ? '<li>Die <strong>Pixel-Bros-Erweiterung</strong> wird beim Öffnen automatisch geladen. Die Bühnen ' +
+                p.names.tilemaps.map(n => '<code>' + n + '</code>').join(', ') + ' bearbeitest du im Tilemap-Editor (8×8-Kacheln, Blöcke „Bühne … Karte …“). Die Ebenen sollten bis an den Rand reichen.</li>' :
+            kind === 'maze' ? '<li>Die <strong>Pixel-Maze-Erweiterung</strong> wird beim Öffnen automatisch geladen. Die Labyrinthe ' +
                 p.names.tilemaps.map(n => '<code>' + n + '</code>').join(', ') + ' bearbeitest du im Tilemap-Editor (8×8-Kacheln, Blöcke „Labyrinth … Karte …“).</li>' :
             kind === 'racer' ? '<li>Die <strong>Pixel-Racer-Erweiterung</strong> wird beim Öffnen automatisch geladen. Die Strecken ' +
                 p.names.tilemaps.map(n => '<code>' + n + '</code>').join(', ') + ' bearbeitest du im Tilemap-Editor (8×8-Kacheln, Blöcke „Strecke … Karte …“).</li>' :
