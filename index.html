@@ -110,6 +110,7 @@
         <span class="spacer"></span>
         <button id="exportAll">Komplettes Set als Code</button>
         <label for="withPixelquest" title="Spielbares Pixel-Quest-Projekt: Erweiterung, Assets unter den Namen der Engine, Markierungs-Kacheln und eine Beispielwelt im Tilemap-Editor."><input type="checkbox" id="withPixelquest" checked> als Pixel-Quest-Spiel</label>
+        <label for="biomePalette" title="Jedes Biom bekommt eine eigene 16-Farben-Palette (z. B. mehr Blautöne unter Wasser). Die Vorschau zeigt sie, der Export setzt sie, und Pixel-Quest wechselt sie beim Laden jeder Welt. Weiß, Rot, Gelb, Beige, Braun und Schwarz bleiben überall gleich."><input type="checkbox" id="biomePalette" checked> Biom-Paletten</label>
         <button class="primary" id="exportProject">Als MakeCode-Projekt speichern</button>
     </div>
     <div class="toolbar worlds" id="worldsBar">
@@ -173,7 +174,11 @@
     let timers = [];
 
     // ---------- Aufbau
-    for (let c = 1; c < 16; c++) { const s = document.createElement('span'); s.style.background = G.PALETTE[c]; s.textContent = G.HEX[c]; s.title = G.COLOR_NAMES[c]; $('palette').appendChild(s); }
+    for (let c = 1; c < 16; c++) { const s = document.createElement('span'); s.textContent = G.HEX[c]; s.title = G.COLOR_NAMES[c]; $('palette').appendChild(s); }
+    // Pixel-Quest-Tabs zeigen die Palette des gewählten Bioms, die übrigen Genres die Standardpalette
+    const PQ_TABS = ['bg', 'tiles', 'char', 'enemy', 'boss', 'items'];
+    function curPal() { return PQ_TABS.includes(state.tab) && $('biomePalette').checked ? G.biomePalette(state.biome) : G.PALETTE; }
+    function paintPalette() { const pal = curPal(); [...$('palette').children].forEach((s, i) => s.style.background = pal[i + 1]); }
     for (const k in G.BIOMES) $('biome').add(new Option(G.BIOMES[k].name + ' – ' + G.BIOMES[k].mood, k));
     ['world1', 'world2', 'world3'].forEach((id, i) => {
         if (i > 0) $(id).add(new Option('Vorrat der Engine', ''));
@@ -181,6 +186,7 @@
         $(id).onchange = updateWorlds;
     });
     $('withPixelquest').onchange = updateWorlds;
+    $('biomePalette').onchange = () => render();
     // Welt 1 folgt dem gewählten Biom; Welt 3 braucht eine eigene Welt 2.
     function chosenWorlds() {
         const w = [$('world1').value];
@@ -232,7 +238,7 @@
     function toCanvas(p, scale, cv) {
         cv = cv || document.createElement('canvas');
         if (p.w <= 32 && scale > 1) scale *= 2;
-        const im = p.toRGBA(1);
+        const im = p.toRGBA(1, curPal());
         cv.width = p.w; cv.height = p.h;
         cv.getContext('2d').putImageData(new ImageData(im.data, im.width, im.height), 0, 0);
         cv.style.width = p.w * scale + 'px'; cv.style.height = p.h * scale + 'px';
@@ -267,7 +273,7 @@
         const box = document.createElement('div'); box.className = 'swatches';
         for (let c = 1; c < 16; c++) {
             const b = document.createElement('button');
-            b.style.background = G.PALETTE[c]; b.title = G.COLOR_NAMES[c]; b.setAttribute('aria-label', G.COLOR_NAMES[c]);
+            b.style.background = curPal()[c]; b.title = G.COLOR_NAMES[c]; b.setAttribute('aria-label', G.COLOR_NAMES[c]);
             b.setAttribute('aria-pressed', state.char[key] === c);
             b.onclick = () => { state.char[key] = c; render(); };
             box.appendChild(b);
@@ -478,6 +484,7 @@
     function render() {
         timers.forEach(clearInterval); timers = [];
         S.stopMelody();
+        paintPalette();
         document.querySelectorAll('#tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === state.tab));
         $('stage').innerHTML = ''; $('controls').innerHTML = ''; $('sheet').innerHTML = '';
         $('stageTitle').textContent = TABS[state.tab];
@@ -880,7 +887,7 @@
         const pq = $('withPixelquest').checked;
         const worlds = pq ? chosenWorlds() : null;
         const p = G.makecodeProject({ seed: state.seed, biome: state.biome, char: state.char, boss: state.boss, pixelquest: pq,
-            worlds, bossInLast: $('bossInLast').checked,
+            worlds, bossInLast: $('bossInLast').checked, palette: $('biomePalette').checked,
             name: (pq ? 'pixel-quest-' + worlds.join('-') : 'pixel-assets-' + state.biome) + '-' + state.seed, extensions });
         // PNG mit eingebettetem Projekt: im Claude-Artifact erlaubt und von MakeCode direkt importierbar
         const fileName = p.name + '.png';

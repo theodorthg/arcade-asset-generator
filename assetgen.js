@@ -12,6 +12,26 @@
     // ---------------------------------------------------------------- Palette
     const PALETTE = ['#00000000', '#ffffff', '#ff2121', '#ff93c4', '#ff8135', '#fff609', '#249ca3', '#78dc52',
         '#003fad', '#87f2ff', '#8e2ec4', '#a4839f', '#5c406c', '#e5cdc4', '#91463d', '#000000'];
+    // Biom-Paletten: Basisfarben für Figur, Items und Boss (1 weiß, 2 rot, 5 gelb, d beige, e braun, f schwarz)
+    // bleiben überall gleich; die übrigen Farben bekommen je Biom eigene Töne aus derselben Farbfamilie.
+    const BIOME_PALETTE_OVERRIDES = {
+        grass: {},
+        scifi: { 3: '#ff8fd0', 4: '#ff7a3a', 6: '#2a8fa8', 7: '#5fe0a0', 8: '#1a3a8f', 9: '#7fe8ff', 0xa: '#9a3ce0', 0xb: '#8a8fa8', 0xc: '#3a3f5c' },
+        dungeon: { 3: '#c87a9a', 4: '#e07a30', 6: '#3d6e6a', 7: '#6e8f4a', 8: '#2a3550', 9: '#8fb0c0', 0xa: '#6a3a7a', 0xb: '#8a7a78', 0xc: '#3e3240' },
+        underwater: { 3: '#ff8fb0', 4: '#ff9a5a', 6: '#1fa3a0', 7: '#4fd0a0', 8: '#0a3a8a', 9: '#6ee0f0', 0xa: '#5a4ab0', 0xb: '#7a9fb0', 0xc: '#1e3a5c' },
+        space: { 3: '#ff9ae0', 4: '#ffa040', 6: '#3a6ab0', 7: '#9adc7a', 8: '#141e5a', 9: '#a0c8ff', 0xa: '#b04ae0', 0xb: '#8a80b0', 0xc: '#241a40' },
+        desert: { 3: '#f0b090', 4: '#e8963a', 6: '#4aa08a', 7: '#a0b84a', 8: '#2a4a9a', 9: '#a8e0f0', 0xa: '#a05a8a', 0xb: '#c8a888', 0xc: '#7a5038' },
+        ice: { 3: '#f0b0d8', 4: '#ff9a60', 6: '#4ab8d0', 7: '#9ad8b8', 8: '#1a4aa8', 9: '#b8f4ff', 0xa: '#7a5ad0', 0xb: '#b0c0d8', 0xc: '#4a5a80' },
+        magic: { 3: '#ff9ae0', 4: '#ff8a50', 6: '#3aa8a8', 7: '#8ae07a', 8: '#2a2aa8', 9: '#9ae8ff', 0xa: '#a83ae0', 0xb: '#c08ad0', 0xc: '#4a2a70' },
+    };
+    const PALETTE_BASE = [1, 2, 5, 0xd, 0xe, 0xf];
+    function biomePalette(biome) {
+        const o = BIOME_PALETTE_OVERRIDES[biome] || {};
+        return PALETTE.map((c, i) => o[i] || c);
+    }
+    // 16 Farben als #rrggbb für pxt.json ("palette") bzw. als 48-Byte-Hex für image.setPalette
+    function paletteList(pal) { return pal.map((c, i) => i === 0 ? '#000000' : c.slice(0, 7)); }
+    function paletteHex(pal) { return paletteList(pal).map(c => c.slice(1)).join(''); }
     const COLOR_NAMES = ['transparent', 'weiß', 'rot', 'rosa', 'orange', 'gelb', 'türkis', 'grün',
         'blau', 'hellblau', 'lila', 'mauve', 'dunkellila', 'beige', 'braun', 'schwarz'];
     const HEX = '.123456789abcdef';
@@ -107,13 +127,13 @@
             }
             return s + indent + '`';
         }
-        toRGBA(scale) {
-            scale = scale || 1;
+        toRGBA(scale, pal) {
+            scale = scale || 1; pal = pal || PALETTE;
             const W = this.w * scale, H = this.h * scale, out = new Uint8ClampedArray(W * H * 4);
             for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
                 const c = this.get(Math.floor(x / scale), Math.floor(y / scale)), o = (y * W + x) * 4;
                 if (!c) continue;
-                const h = PALETTE[c];
+                const h = pal[c];
                 out[o] = parseInt(h.substr(1, 2), 16); out[o + 1] = parseInt(h.substr(3, 2), 16);
                 out[o + 2] = parseInt(h.substr(5, 2), 16); out[o + 3] = 255;
             }
@@ -2281,7 +2301,7 @@
 
     // Erweiterungen, die der Export optional einbinden kann (Name -> pxt.json-Abhängigkeit)
     const EXTENSIONS = {
-        pixelquest: { label: 'Pixel-Quest-Erweiterung', spec: 'github:theodorthg/pxt-pixelquest#v0.5.1' },
+        pixelquest: { label: 'Pixel-Quest-Erweiterung', spec: 'github:theodorthg/pxt-pixelquest#v0.6.0' },
         pixelshooter: { label: 'Pixel-Shooter-Erweiterung', spec: 'github:theodorthg/pxt-pixelshooter#v0.2.0' },
         pixelracer: { label: 'Pixel-Racer-Erweiterung', spec: 'github:theodorthg/pxt-pixelracer#v0.1.0' },
         pixelmaze: { label: 'Pixel-Maze-Erweiterung', spec: 'github:theodorthg/pxt-pixelmaze#v0.1.0' },
@@ -2455,9 +2475,10 @@
             mainTs = (worlds || [biome]).map((b, i) =>
                 `pixelquest.setWorld(${i + 1}, tilemap\`welt${i + 1}\`, pixelquest.Style.${PQ_STYLE_ENUM[PQ_STYLES.indexOf(b)]})`).concat([
                 'pixelquest.setLives(3)',
+            ].concat(opts.palette === false ? ['pixelquest.useBiomePalettes(false)'] : []).concat([
                 'pixelquest.startGame()',
                 '',
-            ]).join('\n');
+            ])).join('\n');
         } else {
             const bg = background(biome, seed), t = tileset(biome, seed), ch = character(opts.char || {});
             const it = items(seed), bo = boss(opts.boss || 'golem', seed);
@@ -2517,11 +2538,11 @@
             (opts.pixelquest ? '\nPixel-Quest: Die Engine nimmt Assets mit ihren festen Namen (z. B. heroRun, grassSky) aus diesem Projekt; ' +
                 'die Welt „welt1“ lässt sich im Tilemap-Editor bearbeiten, Spielobjekte werden mit den pq…-Kacheln gesetzt.\n' : '');
         const files = Object.assign({
-            'pxt.json': JSON.stringify({
+            'pxt.json': JSON.stringify(Object.assign({
                 name, description: 'Assets aus dem Arcade Asset Generator', dependencies: Object.assign({ device: '*' }, opts.extensions || {}),
                 files: ['main.blocks', 'main.ts', 'README.md', 'assets.json', 'images.g.jres', 'images.g.ts', 'tilemap.g.jres', 'tilemap.g.ts'],
                 preferredEditor: 'blocksprj',
-            }, null, 4),
+            }, opts.palette === false ? {} : { palette: paletteList(biomePalette(opts.pixelquest && opts.worlds && opts.worlds.length ? opts.worlds[0] : biome)) }), null, 4),
             'main.blocks': '',
             'main.ts': mainTs,
             'README.md': readme,
@@ -2730,7 +2751,7 @@
         shooterAssets, shooterProject, PS_STYLES, PS_STYLE_ENUM,
         makecodeProject, buildAssetFiles, pixelquestAssets, markers, asciiLevel, exampleWorldRows, generateWorldRows,
         PQ_STYLES, PQ_STYLE_ENUM, PQ_MARKERS, PQ_MARKER_CHARS, f4Bytes, EXTENSIONS,
-        PALETTE, COLOR_NAMES, HEX, DARK, LIGHT, Pix, makeRand, hashSeed,
+        PALETTE, BIOME_PALETTE_OVERRIDES, PALETTE_BASE, biomePalette, paletteList, paletteHex, COLOR_NAMES, HEX, DARK, LIGHT, Pix, makeRand, hashSeed,
         BIOMES, ENEMY_TYPES, BIOME_ENEMIES, BOSS_TYPES, HAIR_STYLES, HATS, CHAR_DEFAULTS,
         background, tileset, character, randomCharacter, enemy, boss, items,
         RACER_STYLES, RACER_TRACKS, racerCar, racerTiles, racerItems, racerTrack,
