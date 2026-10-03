@@ -163,9 +163,10 @@
     const state = {
         tab: 'bg', seed: '1', biome: 'grass', zoom: 3,
         char: Object.assign({}, G.CHAR_DEFAULTS), enemy: 'slime', boss: 'golem',
+        shStyle: 'space', shStages: ['space', 'sea', 'desert'], shPlayers: 2,
         sfxType: 'jump', sfx: null, melType: 'start', mel: { key: null, minor: null, tempo: null },
     };
-    const TABS = { bg: 'Hintergrund', tiles: 'Tiles', char: 'Spielfigur', enemy: 'Gegner', boss: 'Boss', items: 'Items', sound: 'Sounds' };
+    const TABS = { bg: 'Hintergrund', tiles: 'Tiles', char: 'Spielfigur', enemy: 'Gegner', boss: 'Boss', items: 'Items', sound: 'Sounds', shooter: 'Shooter' };
     let timers = [];
 
     // ---------- Aufbau
@@ -299,6 +300,14 @@
             case 'boss': return { boss: G.boss(state.boss, s) };
             case 'items': return { items: G.items(s) };
             case 'sound': return {};
+            case 'shooter': {
+                const b = G.shooterBoss(s);
+                return { shooter: {
+                    bg: G.shooterBackground(state.shStyle, s),
+                    ships: [8, 2, 7, 5].map(c => G.shooterShip(c, s)),
+                    enemies: Object.keys(G.SHOOTER_ENEMIES).map(t => G.shooterEnemy(t, s)),
+                    boss: b, items: G.shooterItems(s) } };
+            }
         }
     }
     function currentSfx() { if (!state.sfx || state.sfx.type !== state.sfxType) state.sfx = S.sfx(state.sfxType, state.seed); return state.sfx; }
@@ -308,6 +317,15 @@
     }
     function codeFor(d) {
         const b = cap(state.biome);
+        if (state.tab === 'shooter') {
+            const sh = d.shooter;
+            let t = 'namespace shooterGfx {\n';
+            sh.ships.forEach((f, i) => t += G.framesToTS('ship' + (i + 1), f));
+            Object.keys(G.SHOOTER_ENEMIES).forEach((k, i) => t += G.framesToTS(k, sh.enemies[i]));
+            t += G.framesToTS('bossFly', sh.boss.fly) + G.imageToTS('bossHurt', sh.boss.hurt);
+            t += G.imageToTS('bg' + cap(state.shStyle) + 'Far', sh.bg.far) + G.imageToTS('bg' + cap(state.shStyle) + 'Near', sh.bg.near);
+            return t + '}\n';
+        }
         if (state.tab === 'sound') {
             return 'namespace sounds {\n' + S.sfxToTS(state.sfxType, currentSfx()) + S.melodyToTS(state.melType + 'Tune', currentMelody()) + '}\n';
         }
@@ -327,6 +345,7 @@
         if (d.enemy) return [...d.enemy.walk, d.enemy.dead];
         if (d.boss) return [...d.boss.walk, d.boss.attack, d.boss.hurt];
         if (d.items) return [].concat(...Object.values(d.items));
+        if (d.shooter) return [].concat(...d.shooter.ships, ...d.shooter.enemies, d.shooter.boss.fly, [d.shooter.boss.hurt]);
         return [];
     }
 
@@ -498,6 +517,7 @@
             note('Münze (animiert), Edelstein, Herz, Geschoss, Feuerball, Schwerthieb, Truhe zu und offen.');
         }
         if (state.tab === 'sound') renderSound();
+        if (state.tab === 'shooter') renderShooter(d.shooter);
         $('code').value = codeFor(d);
     }
 
@@ -626,6 +646,65 @@
         } catch (e) { return false; }
     }
 
+    // ---------- Shooter-Tab
+    function renderShooter(sh) {
+        const W = 160, H = 120, cv = document.createElement('canvas');
+        cv.width = W; cv.height = H; cv.style.width = W * Math.max(2, state.zoom - 1) + 'px'; cv.style.height = H * Math.max(2, state.zoom - 1) + 'px';
+        const far = toCanvas(sh.bg.far, 1), near = toCanvas(sh.bg.near, 1), ship = sh.ships.map(f => f.map(p => toCanvas(p, 1)));
+        const ctx = cv.getContext('2d');
+        const still = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+        let t = 0;
+        const tick = () => {
+            t += 1;
+            const yf = Math.floor(t * 0.5) % H, yn = t % H;
+            ctx.drawImage(far, 0, yf); ctx.drawImage(far, 0, yf - H);
+            ctx.drawImage(near, 0, yn); ctx.drawImage(near, 0, yn - H);
+            ctx.drawImage(ship[0][t >> 2 & 1], 56 + Math.round(Math.sin(t / 20) * 12), 96);
+            ctx.drawImage(ship[1][t >> 2 & 1], 88 + Math.round(Math.cos(t / 23) * 12), 98);
+        };
+        tick(); if (!still) timers.push(setInterval(tick, 33));
+        figure(cv, 'Scroll-Vorschau');
+        sh.ships.forEach((f, i) => animFigure(f, 'Spieler ' + (i + 1), 120));
+        Object.keys(G.SHOOTER_ENEMIES).forEach((k, i) => animFigure(sh.enemies[i], G.SHOOTER_ENEMIES[k], 160));
+        animFigure(sh.boss.fly, 'Endboss', 200);
+        figure(toCanvas(sh.boss.hurt, state.zoom), 'Treffer-Blitz');
+        animFigure(sh.items.explosion, 'Explosion', 90);
+        ['shot', 'enemyShot', 'power', 'shield', 'bomb', 'life', 'shieldRing'].forEach(k => figure(toCanvas(sh.items[k], state.zoom), k));
+        control('Vorschau-Hintergrund', select('shStyle', G.SHOOTER_STYLES, state.shStyle, v => state.shStyle = v), 'shStyle');
+        heading('Pixel-Shooter-Spiel');
+        [0, 1, 2].forEach(i => {
+            const opts = i === 0 ? {} : { '': '– keine –' };
+            for (const k in G.SHOOTER_STYLES) opts[k] = G.SHOOTER_STYLES[k];
+            control('Stufe ' + (i + 1), select('shStage' + i, opts, state.shStages[i] || '', v => {
+                state.shStages[i] = v || null;
+                if (!state.shStages[1]) state.shStages[2] = null;
+            }), 'shStage' + i);
+        });
+        control('Spieler', select('shPlayers', { 1: '1 Spieler', 2: 'bis zu 2', 3: 'bis zu 3', 4: 'bis zu 4' }, String(state.shPlayers), v => state.shPlayers = +v), 'shPlayers');
+        control('', button('Als Pixel-Shooter-Spiel speichern', 'primary', exportShooter));
+        note('Senkrecht scrollender Shooter: A halten = schießen, B = Bombe. Weitere Spieler steigen mit A auf ihrem Controller ein – auch online im Mehrspieler-Modus von arcade.makecode.com. Jede Stufe endet mit dem Endboss.');
+    }
+    function shooterStages() {
+        const st = [state.shStages[0] || 'space'];
+        if (state.shStages[1]) { st.push(state.shStages[1]); if (state.shStages[2]) st.push(state.shStages[2]); }
+        return st;
+    }
+    function exportShooter() {
+        const stages = shooterStages();
+        const p = G.shooterProject({ seed: state.seed, stages, players: state.shPlayers });
+        const fileName = p.name + '.png';
+        renderProjectInfo(p, fileName, 'shooter');
+        const bg = G.shooterBackground(stages[0], state.seed), scene = bg.far.clone().blit(bg.near, 0, 0);
+        scene.blit(G.shooterShip(8, state.seed)[0], 56, 96).blit(G.shooterShip(2, state.seed)[0], 88, 96);
+        G.shooterEnemy('fighter', state.seed).slice(0, 1).forEach(e => scene.blit(e, 40, 20).blit(e, 72, 14).blit(e, 104, 20));
+        scene.blit(G.shooterItems(state.seed).shot, 63, 80).blit(G.shooterItems(state.seed).shot, 95, 76);
+        const small = toCanvas(scene, 1), cover = document.createElement('canvas');
+        cover.width = 320; cover.height = 240;
+        const ctx = cover.getContext('2d'); ctx.imageSmoothingEnabled = false; ctx.drawImage(small, 0, 0, 320, 240);
+        const canvas = encodeBlobIntoCanvas(cover, new TextEncoder().encode(p.mkcd));
+        canvas.toBlob(blob => saveFile(fileName, blob), 'image/png');
+    }
+
     async function exportProject() {
         const extensions = $('withPixelquest').checked ? { pixelquest: G.EXTENSIONS.pixelquest.spec } : {};
         const pq = $('withPixelquest').checked;
@@ -639,7 +718,7 @@
         const canvas = encodeBlobIntoCanvas(projectCover(), new TextEncoder().encode(p.mkcd));
         canvas.toBlob(blob => saveFile(fileName, blob), 'image/png');
     }
-    function renderProjectInfo(p, fileName) {
+    function renderProjectInfo(p, fileName, kind) {
         const list = (title, names, fn) => '<div><strong>' + title + ' (' + names.length + ')</strong><div class="asset-list">' +
             names.map(n => '<code>' + fn(n) + '</code>').join('') + '</div></div>';
         const tick = '&#96;';
@@ -647,7 +726,9 @@
             '<ol><li>Auf <a href="https://arcade.makecode.com" target="_blank" rel="noopener">arcade.makecode.com</a> <strong>Importieren → Datei importieren</strong> wählen.</li>' +
             '<li>Die gespeicherte Datei <code>' + fileName + '</code> auswählen – das Bild enthält das ganze Projekt, es entsteht ein neues Projekt mit Demo-Level.</li>' +
             '<li>Alle Grafiken stehen im Tab <strong>Assets</strong> und in jedem Bild-Block unter <strong>Meine Assets</strong> zur Auswahl.</li>' +
-            ($('withPixelquest').checked ? '<li>Die <strong>Pixel-Quest-Erweiterung</strong> wird beim Öffnen automatisch geladen. Das Spiel startet sofort; ' +
+            (kind === 'shooter' ? '<li>Die <strong>Pixel-Shooter-Erweiterung</strong> wird beim Öffnen automatisch geladen. Das Spiel startet sofort; ' +
+                'Stufen und Spielerzahl stellst du in den Blöcken „Stufe … Stil …“ und „erlaube bis zu … Spieler“ ein. Grafiken änderst du im Assets-Tab (Namen sh…).</li>' :
+            $('withPixelquest').checked ? '<li>Die <strong>Pixel-Quest-Erweiterung</strong> wird beim Öffnen automatisch geladen. Das Spiel startet sofort; ' +
                 'die Welten ' + p.names.tilemaps.map(n => '<code>' + n + '</code>').join(', ') + ' bearbeitest du im Tilemap-Editor (Blöcke „Welt … Karte …“). Spielobjekte setzt du mit den Kacheln ' +
                 '<code>pqStart</code>, <code>pqCoin</code>, <code>pqWalker</code> …' + (p.names.tilemaps.length < 3 ? ' – die übrigen Welten bis 3 nimmt die Engine aus ihrem Vorrat.' : '') + '</li>' : '') + '</ol>' +
             '<p class="hint">Startet kein Download (z. B. in einer eingebetteten Vorschau), die Seite direkt öffnen: ' +

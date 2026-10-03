@@ -1739,6 +1739,156 @@
     }
 
     // =====================================================================
+    //  SHOOTER (Draufsicht, Spieler fliegt nach oben)
+    //  Hintergründe 160x120 senkrecht UND waagrecht nahtlos: far (deckend), near (transparent)
+    // =====================================================================
+    const SHOOTER_STYLES = { space: 'Weltall', sea: 'Ozean', desert: 'Wüste', ice: 'Eismeer' };
+    const wrapXY = (p, x, y, c) => { p.d[(((y % p.h) + p.h) % p.h) * p.w + (((x % p.w) + p.w) % p.w)] = c; };
+    function blobXY(p, cx, cy, rx, ry, fn) {
+        for (let y = Math.floor(cy - ry - 1); y <= cy + ry + 1; y++) for (let x = Math.floor(cx - rx - 1); x <= cx + rx + 1; x++) {
+            const dx = (x - cx) / rx, dy = (y - cy) / ry, d = dx * dx + dy * dy;
+            if (d <= 1) { const c = fn(x, y, d); if (c) wrapXY(p, x, y, c); }
+        }
+    }
+    function shooterBackground(style, seed) {
+        const r = makeRand('sbg:' + style + ':' + seed);
+        const far = new Pix(BW, BH), near = new Pix(BW, BH);
+        if (style === 'space') {
+            for (let y = 0; y < BH; y++) for (let x = 0; x < BW; x++) far.set(x, y, 0xf);
+            const nc = r.pick([[0xa, 0xc], [8, 0xc], [2, 0xe]]);
+            for (let k = 0; k < 3; k++) { const cx = r.int(0, BW), cy = r.int(0, BH), rx = r.int(18, 34), ry = r.int(12, 22);
+                blobXY(far, cx, cy, rx, ry, (x, y, d) => dither(x, y, (1 - d) * 0.8) ? (d < 0.3 && dither(x, y, 0.5) ? nc[0] : nc[1]) : 0); }
+            for (let i = 0; i < 70; i++) wrapXY(far, r.int(0, BW), r.int(0, BH), r.pick([1, 0xd, 9, 0xb]));
+            for (let i = 0; i < 18; i++) { const x = r.int(0, BW), y = r.int(0, BH); wrapXY(near, x, y, 1); if (r.chance(0.3)) { wrapXY(near, x, y + 1, 9); wrapXY(near, x, y - 1, 9); } }
+            for (let k = 0; k < 2; k++) asteroid(near, r, r.int(10, 150), r.int(10, 110), r.int(4, 7), true);
+        } else if (style === 'sea') {
+            for (let y = 0; y < BH; y++) for (let x = 0; x < BW; x++) far.set(x, y, dither(x, y, 0.25 + 0.15 * Math.sin(x / BW * Math.PI * 4) * Math.sin(y / BH * Math.PI * 2)) ? 6 : 8);
+            for (let i = 0; i < 40; i++) { const x = r.int(0, BW), y = r.int(0, BH); for (let k = 0; k < r.int(2, 4); k++) wrapXY(far, x + k, y, 9); }
+            const ni = r.int(2, 3);
+            for (let k = 0; k < ni; k++) { const cx = r.int(0, BW), cy = Math.floor(k * BH / ni + r.int(0, 20)), rx = r.int(10, 18), ry = r.int(8, 13);
+                blobXY(near, cx, cy, rx + 2, ry + 2, (x, y, d) => d > 0.8 ? 9 : d > 0.62 ? 0xd : d > 0.45 ? 4 : (dither(x, y, 0.5) ? 7 : 6));
+                for (let t = 0; t < 3; t++) { const px = cx + r.int(-rx / 2, rx / 2), py = cy + r.int(-ry / 2, ry / 2); wrapXY(near, px, py, 0xe); wrapXY(near, px - 1, py - 1, 7); wrapXY(near, px + 1, py - 1, 7); wrapXY(near, px, py - 2, 7); } }
+            for (let i = 0; i < 4; i++) { const x = r.int(0, BW), y = r.int(0, BH); for (let k = 0; k < 9; k++) wrapXY(near, x + k, y + (k % 3 === 1 ? 1 : 0), 1); } // Wolkenfetzen
+        } else if (style === 'desert') {
+            const f = periodicNoise(r, BW, 4), g2 = periodicNoise(r, BH, 3);
+            for (let y = 0; y < BH; y++) for (let x = 0; x < BW; x++) {
+                const v = f(x + Math.sin(y / BH * Math.PI * 2) * 20) * 0.6 + g2(y) * 0.4;
+                far.set(x, y, ((Math.floor((y + v * 30) / 7)) % 2) ? (dither(x, y, 0.4) ? 4 : 5) : 4);
+            }
+            for (let i = 0; i < 25; i++) wrapXY(far, r.int(0, BW), r.int(0, BH), 0xe);
+            for (let k = 0; k < 5; k++) { const cx = r.int(0, BW), cy = r.int(0, BH), rr = r.int(3, 6);
+                blobXY(near, cx, cy, rr, rr * 0.8, (x, y, d) => d > 0.6 ? 0xc : (x - cx + y - cy < 0 ? 0xd : 0xb)); }
+            for (let k = 0; k < 3; k++) { const cx = r.int(0, BW), cy = r.int(0, BH); for (let i = -3; i <= 3; i++) { wrapXY(near, cx + i, cy, 7); wrapXY(near, cx, cy + i, 7); } wrapXY(near, cx, cy, 6); }
+        } else { // ice: Eisschollen auf dunklem Wasser
+            for (let y = 0; y < BH; y++) for (let x = 0; x < BW; x++) {
+                const w = Math.sin(x / BW * Math.PI * 6 + Math.sin(y / BH * Math.PI * 4) * 2) * Math.cos(y / BH * Math.PI * 2);
+                far.set(x, y, dither(x, y, 0.15 + Math.max(0, w) * 0.35) ? 6 : (dither(x, y, 0.2) ? 0xc : 8));
+            }
+            for (let k = 0; k < 6; k++) { let x = r.int(0, BW), y = r.int(0, BH); for (let i = 0; i < 14; i++) { wrapXY(far, x, y, 9); x += r.pick([1, 1, 0]); y += r.pick([1, 0, -1]); } } // Eisrisse
+            const nf = r.int(5, 7);
+            for (let k = 0; k < nf; k++) { const cx = r.int(0, BW), cy = r.int(0, BH), rx = r.int(8, 16), ry = r.int(6, 12);
+                blobXY(near, cx, cy, rx, ry, (x, y, d) => d > 0.8 ? 9 : (dither(x, y, 0.15) ? 9 : 1)); }
+        }
+        return { far, near };
+    }
+
+    // Raumschiff des Spielers, Spitze nach oben; frames[0..1] mit flackerndem Antrieb
+    function shooterShip(color, seed) {
+        const r = makeRand('ship:' + color + ':' + seed);
+        const wingStyle = r.int(0, 2);
+        const frame = (flame) => {
+            const p = new Pix(16, 16);
+            p.rect(7, 2, 2, 11, 0xd).rect(6, 5, 4, 7, 0xd).set(7, 1, 1).set(8, 1, 0xd);   // Rumpf
+            p.rect(7, 5, 2, 3, 9).set(7, 5, 1);                                              // Cockpit
+            if (wingStyle === 0) for (let i = 0; i < 5; i++) { p.rect(5 - i, 8 + Math.floor(i / 2), 1, 4, color); p.rect(10 + i, 8 + Math.floor(i / 2), 1, 4, color); }
+            if (wingStyle === 1) { p.rect(1, 9, 5, 3, color).rect(10, 9, 5, 3, color).rect(1, 6, 1, 4, 0xb).rect(14, 6, 1, 4, 0xb); }
+            if (wingStyle === 2) for (let i = 0; i < 6; i++) { p.rect(5 - i, 6 + i, 1, 3, color); p.rect(10 + i, 6 + i, 1, 3, color); }
+            p.rect(6, 12, 4, 1, DARK[color]).set(6, 9, color).set(9, 9, color);
+            p.set(7, 13, 4).set(8, 13, 4);
+            if (flame) { p.set(7, 14, 5).set(8, 14, 5).set(7, 15, 4); } else { p.set(7, 14, 4).set(8, 14, 5).set(8, 15, 2); }
+            return p.outline(0xf);
+        };
+        return [frame(true), frame(false)];
+    }
+
+    // Gegner, Spitze nach unten
+    const SHOOTER_ENEMIES = { fighter: 'Jäger', zigzag: 'Untertasse', diver: 'Sturzflieger', turret: 'Geschützturm' };
+    function shooterEnemy(type, seed) {
+        const r = makeRand('senemy:' + type + ':' + seed);
+        const c = r.pick([2, 0xa, 4, 7, 3]);
+        const mk = (fn) => [0, 1].map(k => { const p = new Pix(16, 16); fn(p, k); return p.outline(0xf); });
+        if (type === 'fighter') return mk((p, k) => {
+            p.rect(7, 3, 2, 10, 0xb).rect(6, 4, 4, 5, 0xb).set(7, 13, 0xb).set(8, 14, 0xc);
+            for (let i = 0; i < 5; i++) { p.rect(5 - i, 3 + i, 1, 3, c); p.rect(10 + i, 3 + i, 1, 3, c); }
+            p.rect(7, 9, 2, 2, 2).set(7, 9, 1);
+            p.set(7, 2, k ? 5 : 4).set(8, 2, k ? 4 : 5).set(7, 1, k ? 2 : 0);
+        });
+        if (type === 'zigzag') return mk((p, k) => {
+            p.ellipse(8, 8, 7, 3, c).rect(1, 8, 15, 1, DARK[c]);
+            p.ellipse(8, 6, 3, 2, 9).set(7, 5, 1);
+            for (let i = 0; i < 4; i++) p.set(2 + i * 4, 9, (i + k) % 2 ? 5 : 2);
+        });
+        if (type === 'diver') return mk((p, k) => {
+            for (let y = 1; y < 14; y++) { const w = Math.max(0, Math.floor((14 - y) / 2)); p.rect(8 - w, y, w * 2, 1, y > 10 ? DARK[c] : c); }
+            p.rect(7, 6, 2, 3, 0xf).set(7, 7, 2).set(8, 7, 2);
+            p.set(7, 14, 0xb).set(8, 14, 0xb).set(7, 0, k ? 5 : 4).set(8, 0, k ? 4 : 5);
+        });
+        // turret: am Boden stehender Geschützturm (scrollt mit dem Boden)
+        return mk((p, k) => {
+            p.rect(2, 2, 12, 12, 0xc).rect(3, 3, 10, 10, 0xb).rect(3, 3, 10, 1, 0xd);
+            p.circle(8, 8, 3.2, c).set(7, 7, LIGHT[c]);
+            p.rect(7, 10, 2, 5 + k, 0xf).rect(7, 10, 1, 4, 0xc);
+        });
+    }
+
+    // Endboss: 32x32, Spitze nach unten, mit Kanonen
+    function shooterBoss(seed) {
+        const r = makeRand('sboss:' + seed);
+        const c = r.pick([0xa, 2, 8, 0xc]), glow = r.pick([2, 5, 7, 9]);
+        const frame = (k) => {
+            const p = new Pix(32, 32);
+            p.ellipse(16, 12, 10, 9, 0xb);
+            for (let y = 0; y < 32; y++) for (let x = 0; x < 32; x++) if (p.get(x, y) === 0xb && y > 15 && dither(x, y, 0.5)) p.set(x, y, 0xc);
+            p.rect(1, 9, 30, 6, c).rect(1, 9, 30, 1, LIGHT[c]).rect(1, 14, 30, 1, DARK[c]);
+            p.rect(2, 15, 4, 8, 0xc).rect(26, 15, 4, 8, 0xc).rect(3, 22, 2, 4, 0xf).rect(27, 22, 2, 4, 0xf);
+            p.rect(12, 20, 8, 6, 0xc).rect(14, 25, 4, 6, 0xf).rect(15, 30, 2, 2, glow);
+            p.circle(16, 9, 3, 0xf).circle(16, 9, 2, glow).set(15, 8, 1);
+            p.rect(8, 4, 2, 4, 0xd).rect(22, 4, 2, 4, 0xd);
+            p.set(4, 12, k ? glow : 0xf).set(27, 12, k ? 0xf : glow).set(10, 12, glow).set(21, 12, glow);
+            return p.outline(0xf);
+        };
+        const fly = [frame(0), frame(1)];
+        const hurt = fly[0].clone().map(v => v && v !== 0xf ? 1 : v);
+        return { fly, hurt };
+    }
+
+    function shooterItems(seed) {
+        const r = makeRand('sitems:' + seed);
+        const shot = new Pix(4, 8).rect(1, 0, 2, 8, 5).rect(1, 0, 2, 2, 1).set(0, 3, 4).set(3, 3, 4);
+        const enemyShot = new Pix(6, 6).circle(2.5, 2.5, 2.4, 2).circle(2.5, 2.5, 1.2, 5).set(2, 2, 1);
+        const icon = (letter, c) => {
+            const p = new Pix(12, 12);
+            p.circle(5.5, 5.5, 5.4, c).circle(5.5, 5.5, 4.2, DARK[c]);
+            const L = { P: ['111', '101', '111', '100', '100'], S: ['111', '100', '111', '001', '111'], B: ['110', '101', '110', '101', '110'], L: ['100', '100', '100', '100', '111'] }[letter];
+            L.forEach((row, y) => [...row].forEach((ch, x) => { if (ch === '1') p.set(4 + x, 3 + y, 1); }));
+            return p.outline(0xf);
+        };
+        const power = icon('P', 2), shield = icon('S', 9 === 9 ? 6 : 6), bomb = icon('B', 4), life = icon('L', 7);
+        const explosion = [3, 5, 7, 7].map((rad, i) => {
+            const p = new Pix(16, 16);
+            for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+                const d = Math.hypot(x - 7.5, y - 7.5) + (r.next() - 0.5) * 2;
+                if (d > rad) continue;
+                p.set(x, y, i === 3 ? (dither(x, y, 0.4) ? 0xb : 0) : d < rad * 0.35 ? 1 : d < rad * 0.65 ? 5 : d < rad * 0.85 ? 4 : 2);
+            }
+            return p;
+        });
+        const shieldRing = new Pix(20, 20);
+        for (let a = 0; a < 360; a += 8) { const x = Math.round(9.5 + Math.cos(a * Math.PI / 180) * 9), y = Math.round(9.5 + Math.sin(a * Math.PI / 180) * 9); if (a % 24) shieldRing.set(x, y, 9); }
+        return { shot, enemyShot, power, shield, bomb, life, explosion, shieldRing };
+    }
+
+    // =====================================================================
     //  Export-Helfer
     // =====================================================================
     function framesToTS(name, frames, indent) {
@@ -1863,6 +2013,7 @@
     // Erweiterungen, die der Export optional einbinden kann (Name -> pxt.json-Abhängigkeit)
     const EXTENSIONS = {
         pixelquest: { label: 'Pixel-Quest-Erweiterung', spec: 'github:theodorthg/pxt-pixelquest#v0.5.1' },
+        pixelshooter: { label: 'Pixel-Shooter-Erweiterung', spec: 'github:theodorthg/pxt-pixelshooter#v0.1.0' },
     };
 
     // =====================================================================
@@ -2115,12 +2266,63 @@
     }
     const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
 
+    // =====================================================================
+    //  PIXEL-SHOOTER: Assets unter den Namen der Engine und spielbares Projekt
+    // =====================================================================
+    const PS_STYLES = ['space', 'sea', 'desert', 'ice'];
+    const PS_STYLE_ENUM = ['Space', 'Sea', 'Desert', 'Ice'];
+    const PS_SHIP_COLORS = [8, 2, 7, 5];
+
+    /** opts.stages: ['space', 'sea', …], opts.seed */
+    function shooterAssets(opts) {
+        const seed = opts.seed || '1', images = [], anims = [];
+        PS_SHIP_COLORS.forEach((c, i) => anims.push({ name: 'shShip' + (i + 1), frames: shooterShip(c, seed), interval: 80 }));
+        Object.keys(SHOOTER_ENEMIES).forEach(t => anims.push({ name: 'sh' + cap(t), frames: shooterEnemy(t, seed), interval: 120 }));
+        const b = shooterBoss(seed);
+        anims.push({ name: 'shBoss', frames: b.fly, interval: 150 });
+        images.push({ name: 'shBossHurt', p: b.hurt });
+        const it = shooterItems(seed);
+        [['shShot', 'shot'], ['shEnemyShot', 'enemyShot'], ['shPower', 'power'], ['shShield', 'shield'], ['shBomb', 'bomb'], ['shLife', 'life'], ['shShieldRing', 'shieldRing']]
+            .forEach(([n, k]) => images.push({ name: n, p: it[k] }));
+        anims.push({ name: 'shExplosion', frames: it.explosion, interval: 70 });
+        (opts.stages || ['space']).filter((v, i, a) => a.indexOf(v) === i).forEach(st => {
+            const bg = shooterBackground(st, seed);
+            images.push({ name: 'sh' + cap(st) + 'Far', p: bg.far }, { name: 'sh' + cap(st) + 'Near', p: bg.near });
+        });
+        return { images, anims, tiles: [], tilemaps: [] };
+    }
+
+    function shooterProject(opts) {
+        opts = opts || {};
+        const seed = opts.seed || '1', stages = opts.stages && opts.stages.length ? opts.stages : ['space', 'sea', 'desert'];
+        const name = opts.name || ('pixel-shooter-' + stages.join('-') + '-' + seed);
+        const spec = shooterAssets({ stages, seed });
+        const mainTs = stages.map((st, i) => `pixelshooter.setStage(${i + 1}, pixelshooter.Style.${PS_STYLE_ENUM[PS_STYLES.indexOf(st)]})`)
+            .concat([`pixelshooter.setStageCount(${stages.length})`, `pixelshooter.setMaxPlayers(${opts.players || 2})`, 'pixelshooter.setLives(3)', 'pixelshooter.startGame()', '']).join('\n');
+        const readme = `# ${name}\n\nErzeugt mit dem Arcade Asset Generator (Seed "${seed}"). Pixel-Shooter: senkrecht scrollender Shooter für bis zu 4 Spieler.\n` +
+            'Weitere Spieler steigen mit A auf ihrem Controller ein, auch online im Mehrspieler-Modus. Alle Grafiken liegen im Assets-Tab ' +
+            '(Namen wie shShip1, shFighter, shBoss, shSpaceFar); was du dort änderst, übernimmt das Spiel.\n';
+        const files = Object.assign({
+            'pxt.json': JSON.stringify({
+                name, description: 'Pixel-Shooter aus dem Arcade Asset Generator',
+                dependencies: { device: '*', pixelshooter: EXTENSIONS.pixelshooter.spec },
+                files: ['main.blocks', 'main.ts', 'README.md', 'assets.json', 'images.g.jres', 'images.g.ts', 'tilemap.g.jres', 'tilemap.g.ts'],
+                preferredEditor: 'blocksprj',
+            }, null, 4),
+            'main.blocks': '', 'main.ts': mainTs, 'README.md': readme, 'assets.json': '',
+        }, buildAssetFiles(spec));
+        const mkcd = JSON.stringify({ meta: { cloudId: 'pxt/arcade', editor: 'blocksprj', name }, source: JSON.stringify(files, null, 2) });
+        return { files, mkcd, name, names: { images: spec.images.map(i => i.name), animations: spec.anims.map(a => a.name), tiles: [], tilemaps: [] } };
+    }
+
     return {
+        shooterAssets, shooterProject, PS_STYLES, PS_STYLE_ENUM,
         makecodeProject, buildAssetFiles, pixelquestAssets, markers, asciiLevel, exampleWorldRows, generateWorldRows,
         PQ_STYLES, PQ_STYLE_ENUM, PQ_MARKERS, PQ_MARKER_CHARS, f4Bytes, EXTENSIONS,
         PALETTE, COLOR_NAMES, HEX, DARK, LIGHT, Pix, makeRand, hashSeed,
         BIOMES, ENEMY_TYPES, BIOME_ENEMIES, BOSS_TYPES, HAIR_STYLES, HATS, CHAR_DEFAULTS,
         background, tileset, character, randomCharacter, enemy, boss, items,
+        SHOOTER_STYLES, SHOOTER_ENEMIES, shooterBackground, shooterShip, shooterEnemy, shooterBoss, shooterItems,
         framesToTS, imageToTS,
     };
 });
