@@ -1889,6 +1889,95 @@
     }
 
     // =====================================================================
+    //  RACER (Draufsicht, 8x8-Kacheln, Strecke = ein Bildschirm 20x15)
+    // =====================================================================
+    const RACER_STYLES = { grass: 'Grüne Wiese', desert: 'Wüste', snow: 'Schnee' };
+    const RACER_CHARS = '#.=FSbo';             // Wand, abseits, Straße, Ziel, Start, Boost, Öl; Ziffern 1-9 = Kontrollpunkte
+    // Auto 12x12, schaut nach rechts; 16 Drehstufen (Winkel k*22,5° im Uhrzeigersinn)
+    function racerCar(color, seed) {
+        const r = makeRand('car:' + color + ':' + seed);
+        const stripe = r.pick([1, 5, 0xf]);
+        const base = new Pix(12, 12);
+        base.rect(1, 3, 10, 6, color).rect(2, 2, 7, 8, color);                 // Karosserie
+        base.rect(1, 1, 3, 2, 0xf).rect(1, 9, 3, 2, 0xf).rect(7, 1, 3, 2, 0xf).rect(7, 9, 3, 2, 0xf); // Räder
+        base.rect(6, 4, 2, 4, 9).set(6, 4, 1);                                 // Windschutzscheibe
+        base.rect(3, 4, 2, 4, DARK[color]);                                     // Heck
+        base.rect(1, 5, 10, 2, stripe === color ? 1 : stripe);                  // Rennstreifen
+        base.set(10, 3, 5).set(10, 8, 5);                                       // Scheinwerfer
+        const frames = [];
+        for (let k = 0; k < 16; k++) {
+            const a = k * Math.PI / 8, ca = Math.cos(a), sa = Math.sin(a), p = new Pix(12, 12);
+            for (let y = 0; y < 12; y++) for (let x = 0; x < 12; x++) {
+                const dx = x - 5.5, dy = y - 5.5;
+                const sx = Math.round(dx * ca + dy * sa + 5.5), sy = Math.round(-dx * sa + dy * ca + 5.5);
+                p.set(x, y, base.get(sx, sy));
+            }
+            frames.push(p);
+        }
+        return frames;
+    }
+    // Kacheln 8x8 je Stil: road, off, wall, finish, start, boost, oil, cp[1..9]
+    function racerTiles(style, seed) {
+        const r = makeRand('rtiles:' + style + ':' + seed);
+        const T = () => new Pix(8, 8);
+        const offC = style === 'desert' ? [4, 0xd, 0xe] : style === 'snow' ? [1, 9, 0xd] : [7, 6, 5];
+        const off = T(); for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) off.set(x, y, dither(x, y, 0.25) ? offC[1] : offC[0]);
+        speckle(off, r, [offC[2]], 3, 0, 7);
+        const road = T().rect(0, 0, 8, 8, 0xc); speckle(road, r, [0xb, 0xf], 5, 0, 7);
+        const wall = T();
+        if (style === 'snow') { wall.rect(0, 0, 8, 8, 9).rect(0, 0, 8, 2, 1).rect(0, 6, 8, 2, 6).set(2, 3, 1).set(5, 4, 1); }
+        else if (style === 'desert') { wall.circle(3.5, 3.5, 3.6, 0xe).circle(2.5, 2.5, 1.5, 4).set(5, 5, 0xc).set(6, 4, 0xc); }
+        else { wall.circle(3.5, 3.5, 3.6, 0xf).circle(3.5, 3.5, 2.4, 0xc).circle(3.5, 3.5, 1, 0xf).set(2, 1, 0xb); } // Reifenstapel
+        const finish = T(); for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) finish.set(x, y, ((x >> 1) + (y >> 1)) % 2 ? 0xf : 1);
+        const start = road.clone(); start.rect(1, 1, 6, 1, 1).rect(1, 6, 6, 1, 1);
+        const boost = road.clone(); for (let i = 0; i < 2; i++) { const x0 = 1 + i * 3; boost.line(x0, 1, x0 + 2, 4, 5).line(x0 + 2, 4, x0, 7, 5); }
+        const oil = road.clone(); oil.circle(3.5, 4, 2.6, 0xf).set(2, 3, 0xb).set(5, 5, 0xa);
+        const digits = ['010110010010111', '111001111100111', '111001111001111', '101101111001001', '111100111001111', '111100111101111', '111001001001001', '111101111101111', '111101111001111'];
+        const cp = digits.map(d => { const p = road.clone(); for (let i = 0; i < 15; i++) if (d[i] === '1') p.set(2 + (i % 3), 1 + Math.floor(i / 3), 5); return p; });
+        return { road, off, wall, finish, start, boost, oil, cp };
+    }
+    function racerItems() {
+        const flag = new Pix(12, 12);
+        for (let y = 1; y < 8; y++) for (let x = 2; x < 11; x++) flag.set(x, y, ((x >> 1) + (y >> 1)) % 2 ? 0xf : 1);
+        flag.rect(1, 1, 1, 11, 0xb);
+        const smoke = [2, 3].map(rad => new Pix(8, 8).circle(3.5, 3.5, rad, 0xb).circle(2.5, 2.5, rad - 1, 0xd));
+        return { flag, smoke };
+    }
+    // Text-Strecke (20x15) -> Tilemap-Spezifikation (Kachelgröße 8)
+    function racerTrack(name, rows, style) {
+        const w = 20, h = 15;
+        const names = ['road', 'off', 'wall', 'finish', 'start', 'boost', 'oil'].map(k => 'rc' + cap(style) + cap(k))
+            .concat([1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => 'rcCheck' + n));
+        const cells = [], walls = [];
+        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+            const c = (rows[y] || '')[x] || '#';
+            let t;
+            if (c >= '1' && c <= '9') t = 8 + (+c - 1);
+            else { t = { '=': 1, '.': 2, '#': 3, 'F': 4, 'S': 5, 'b': 6, 'o': 7 }[c]; if (!t) throw new Error(name + ': unbekanntes Zeichen ' + c); }
+            cells.push(t); walls.push(c === '#' ? 1 : 0);
+        }
+        return { name, w, h, grid: cells, walls, tileNames: names, tileSize: 8 };
+    }
+    // Eingebaute Strecken (Fahrtrichtung: oben nach rechts, im Uhrzeigersinn)
+    const RACER_TRACKS = [
+        { name: 'Wiesenring', style: 'grass', rows: [
+            '####################', '#..................#', '#.4444=SS=F===111..#', '#.4444=SS=F===111..#',
+            '#.4444====F===111..#', '#.===.........===..#', '#.===...####..===..#', '#.===...####..===..#',
+            '#.===.........===..#', '#.===.........===..#', '#.333=======22222..#', '#.333=======22222..#',
+            '#.333=======22222..#', '#..................#', '####################'] },
+        { name: 'Wuestenhufeisen', style: 'desert', rows: [
+            '####################', '#..................#', '#.666=SS=F=====111.#', '#.666=SS=F=====111.#',
+            '#.666====F=====111.#', '#.===..........===.#', '#.===....##....===.#', '#.555======444.===.#',
+            '#.555======444.===.#', '#.555======444.===.#', '#........333o==222.#', '#....##..333===222.#',
+            '#........333=b=222.#', '#..................#', '####################'] },
+        { name: 'Eisbahn', style: 'snow', rows: [
+            '####################', '#..................#', '#.4444=SS=F=o==111.#', '#.4444=SS=F==b=111.#',
+            '#.4444====F====111.#', '#.===..........=o=.#', '#.=o=...####...===.#', '#.===...####...=b=.#',
+            '#.=b=..........===.#', '#.===..........===.#', '#.333===o====b=222.#', '#.333==b====o==222.#',
+            '#.333==========222.#', '#..................#', '####################'] },
+    ];
+
+    // =====================================================================
     //  Export-Helfer
     // =====================================================================
     function framesToTS(name, frames, indent) {
@@ -1980,7 +2069,8 @@
             factory('song', []) + factory('json', []) +
             '\n}\n// Auto-generated code. Do not edit.\n';
 
-        const tileList = [{ id: 'transparency16', display: null, p: new Pix(16, 16) }]
+        const tsz = spec.tileSize || 16;
+        const tileList = [{ id: 'transparency' + tsz, display: null, p: new Pix(tsz, tsz) }]
             .concat((spec.tiles || []).map((t, i) => ({ id: 'tile' + (i + 1), display: t.name, p: t.p })));
         const idByName = {};
         tileList.forEach(tl => { if (tl.display) idByName[tl.display] = tl.id; });
@@ -1990,14 +2080,15 @@
             if (tl.display) tmJres[tl.id].displayName = tl.display;
         });
         const tilemapEntries = (spec.tilemaps || []).map(tm => {
-            const refs = ['myTiles.transparency16'].concat(tm.tileNames.map(n => {
+            const refs = ['myTiles.transparency' + tsz].concat(tm.tileNames.map(n => {
                 if (!idByName[n]) throw new Error('Tilemap ' + tm.name + ': unbekannte Kachel ' + n);
                 return 'myTiles.' + idByName[n];
             }));
-            const bytes = [16, ...le16(tm.w), ...le16(tm.h), ...tm.grid, ...rawBitmap(tm.w, tm.h, (x, y) => tm.walls[x + y * tm.w] ? 2 : 0)];
+            const ts = tm.tileSize || 16;
+            const bytes = [ts, ...le16(tm.w), ...le16(tm.h), ...tm.grid, ...rawBitmap(tm.w, tm.h, (x, y) => tm.walls[x + y * tm.w] ? 2 : 0)];
             tmJres[tm.name] = { id: tm.name, mimeType: 'application/mkcd-tilemap', data: base64(bytesToHex(bytes)), tileset: refs, displayName: tm.name };
             const wallLit = 'img`\n' + Array.from({ length: tm.h }, (_, y) => I3 + Array.from({ length: tm.w }, (_, x) => tm.walls[x + y * tm.w] ? '2' : '.').join(' ')).join('\n') + '\n                `';
-            return { keys: [tm.name, tm.name], expression: `tiles.createTilemap(hex\`${bytesToHex([...le16(tm.w), ...le16(tm.h), ...tm.grid])}\`, ${wallLit}, [${refs.join(',')}], TileScale.Sixteen)` };
+            return { keys: [tm.name, tm.name], expression: `tiles.createTilemap(hex\`${bytesToHex([...le16(tm.w), ...le16(tm.h), ...tm.grid])}\`, ${wallLit}, [${refs.join(',')}], TileScale.${ts === 8 ? 'Eight' : 'Sixteen'})` };
         });
         const tmTs = '// Auto-generated code. Do not edit.\nnamespace myTiles {\n' +
             tileList.map(tl => `    //% fixedInstance jres blockIdentity=images._tile\n    export const ${tl.id} = image.ofBuffer(hex\`\`);\n`).join('') +
@@ -2014,6 +2105,7 @@
     const EXTENSIONS = {
         pixelquest: { label: 'Pixel-Quest-Erweiterung', spec: 'github:theodorthg/pxt-pixelquest#v0.5.1' },
         pixelshooter: { label: 'Pixel-Shooter-Erweiterung', spec: 'github:theodorthg/pxt-pixelshooter#v0.2.0' },
+        pixelracer: { label: 'Pixel-Racer-Erweiterung', spec: 'github:theodorthg/pxt-pixelracer#v0.1.0' },
     };
 
     // =====================================================================
@@ -2315,13 +2407,53 @@
         return { files, mkcd, name, names: { images: spec.images.map(i => i.name), animations: spec.anims.map(a => a.name), tiles: [], tilemaps: [] } };
     }
 
+    // =====================================================================
+    //  PIXEL-RACER: Projekt mit Strecken (strecke1 …) im Tilemap-Editor
+    // =====================================================================
+    const PR_STYLES = ['grass', 'desert', 'snow'];
+    const PR_STYLE_ENUM = ['Grass', 'Desert', 'Snow'];
+    /** opts.tracks: [{track: 0..2, style: 'grass'|'desert'|'snow'}], opts.laps, opts.players, opts.seed */
+    function racerProject(opts) {
+        opts = opts || {};
+        const seed = opts.seed || '1';
+        const tracks = opts.tracks && opts.tracks.length ? opts.tracks : RACER_TRACKS.map((t, i) => ({ track: i, style: t.style }));
+        const name = opts.name || ('pixel-racer-' + tracks.map(t => t.style).join('-') + '-' + seed);
+        const anims = [8, 2, 7, 5].map((c, i) => ({ name: 'rcCar' + (i + 1), frames: racerCar(c, seed), interval: 100 }));
+        const tiles = [], used = tracks.map(t => t.style).filter((v, i, a) => a.indexOf(v) === i);
+        used.forEach(st => {
+            const t = racerTiles(st, seed);
+            ['road', 'off', 'wall', 'finish', 'start', 'boost', 'oil'].forEach(k => tiles.push({ name: 'rc' + cap(st) + cap(k), p: t[k] }));
+        });
+        racerTiles(used[0], seed).cp.forEach((p, i) => tiles.push({ name: 'rcCheck' + (i + 1), p }));
+        const tilemaps = tracks.map((t, i) => racerTrack('strecke' + (i + 1), RACER_TRACKS[t.track].rows, t.style));
+        const spec = { images: [], anims, tiles, tilemaps, tileSize: 8 };
+        const mainTs = tracks.map((t, i) => `pixelracer.setTrack(${i + 1}, tilemap\`strecke${i + 1}\`, pixelracer.Style.${PR_STYLE_ENUM[PR_STYLES.indexOf(t.style)]})`)
+            .concat([`pixelracer.setLaps(${opts.laps || 3})`, `pixelracer.setMaxPlayers(${opts.players || 4})`, 'pixelracer.startGame()', '']).join('\n');
+        const readme = `# ${name}\n\nErzeugt mit dem Arcade Asset Generator (Seed "${seed}"). Pixel-Racer: Rennspiel von oben für 1 bis 4 Spieler, ` +
+            'freie Plätze fahren Computer-Gegner. Weitere Spieler steigen mit A ein, auch online im Mehrspieler-Modus.\n' +
+            'Die Strecken strecke1 … bearbeitest du im Tilemap-Editor (8x8-Kacheln): Kontrollpunkte rcCheck1, rcCheck2 … in Fahrtrichtung, Start-Kacheln vor der Ziellinie.\n';
+        const files = Object.assign({
+            'pxt.json': JSON.stringify({
+                name, description: 'Pixel-Racer aus dem Arcade Asset Generator',
+                dependencies: { device: '*', pixelracer: EXTENSIONS.pixelracer.spec },
+                files: ['main.blocks', 'main.ts', 'README.md', 'assets.json', 'images.g.jres', 'images.g.ts', 'tilemap.g.jres', 'tilemap.g.ts'],
+                preferredEditor: 'blocksprj',
+            }, null, 4),
+            'main.blocks': '', 'main.ts': mainTs, 'README.md': readme, 'assets.json': '',
+        }, buildAssetFiles(spec));
+        const mkcd = JSON.stringify({ meta: { cloudId: 'pxt/arcade', editor: 'blocksprj', name }, source: JSON.stringify(files, null, 2) });
+        return { files, mkcd, name, names: { images: [], animations: anims.map(a => a.name), tiles: tiles.map(t => t.name), tilemaps: tilemaps.map(t => t.name) } };
+    }
+
     return {
+        racerProject, PR_STYLES,
         shooterAssets, shooterProject, PS_STYLES, PS_STYLE_ENUM,
         makecodeProject, buildAssetFiles, pixelquestAssets, markers, asciiLevel, exampleWorldRows, generateWorldRows,
         PQ_STYLES, PQ_STYLE_ENUM, PQ_MARKERS, PQ_MARKER_CHARS, f4Bytes, EXTENSIONS,
         PALETTE, COLOR_NAMES, HEX, DARK, LIGHT, Pix, makeRand, hashSeed,
         BIOMES, ENEMY_TYPES, BIOME_ENEMIES, BOSS_TYPES, HAIR_STYLES, HATS, CHAR_DEFAULTS,
         background, tileset, character, randomCharacter, enemy, boss, items,
+        RACER_STYLES, RACER_TRACKS, racerCar, racerTiles, racerItems, racerTrack,
         SHOOTER_STYLES, SHOOTER_ENEMIES, shooterBackground, shooterShip, shooterEnemy, shooterBoss, shooterItems,
         framesToTS, imageToTS,
     };

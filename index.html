@@ -164,9 +164,10 @@
         tab: 'bg', seed: '1', biome: 'grass', zoom: 3,
         char: Object.assign({}, G.CHAR_DEFAULTS), enemy: 'slime', boss: 'golem',
         shStyle: 'space', shStages: ['space', 'sea', 'desert'], shPlayers: 2, shHorizontal: false,
+        rcTracks: [{ track: 0, style: 'grass' }, { track: 1, style: 'desert' }, { track: 2, style: 'snow' }], rcLaps: 3, rcPlayers: 4,
         sfxType: 'jump', sfx: null, melType: 'start', mel: { key: null, minor: null, tempo: null },
     };
-    const TABS = { bg: 'Hintergrund', tiles: 'Tiles', char: 'Spielfigur', enemy: 'Gegner', boss: 'Boss', items: 'Items', sound: 'Sounds', shooter: 'Shooter' };
+    const TABS = { bg: 'Hintergrund', tiles: 'Tiles', char: 'Spielfigur', enemy: 'Gegner', boss: 'Boss', items: 'Items', sound: 'Sounds', shooter: 'Shooter', racer: 'Racing' };
     let timers = [];
 
     // ---------- Aufbau
@@ -300,6 +301,7 @@
             case 'boss': return { boss: G.boss(state.boss, s) };
             case 'items': return { items: G.items(s) };
             case 'sound': return {};
+            case 'racer': return { racer: true };
             case 'shooter': {
                 const b = G.shooterBoss(s);
                 return { shooter: {
@@ -317,6 +319,11 @@
     }
     function codeFor(d) {
         const b = cap(state.biome);
+        if (state.tab === 'racer') {
+            let t = 'namespace racerGfx {\n';
+            [8, 2, 7, 5].forEach((c, i) => t += G.framesToTS('car' + (i + 1), G.racerCar(c, state.seed)));
+            return t + '}\n';
+        }
         if (state.tab === 'shooter') {
             const sh = d.shooter;
             let t = 'namespace shooterGfx {\n';
@@ -518,6 +525,7 @@
         }
         if (state.tab === 'sound') renderSound();
         if (state.tab === 'shooter') renderShooter(d.shooter);
+        if (state.tab === 'racer') renderRacer();
         $('code').value = codeFor(d);
     }
 
@@ -692,6 +700,51 @@
         control('', button('Als Pixel-Shooter-Spiel speichern', 'primary', exportShooter));
         note('Senkrecht oder waagrecht scrollender Shooter (die Engine dreht die Figuren im waagrechten Modus selbst): A halten = schießen, B = Bombe. Weitere Spieler steigen mit A auf ihrem Controller ein – auch online im Mehrspieler-Modus von arcade.makecode.com. Jede Stufe endet mit dem Endboss.');
     }
+    // ---------- Racing-Tab
+    function trackPix(t) {
+        const tl = G.racerTiles(t.style, state.seed), map = { '=': tl.road, '.': tl.off, '#': tl.wall, 'F': tl.finish, 'S': tl.road, 'b': tl.boost, 'o': tl.oil };
+        const p = new G.Pix(160, 120);
+        G.RACER_TRACKS[t.track].rows.forEach((r, y) => [...r].forEach((c, x) => p.blit(c >= '1' && c <= '9' ? tl.road : map[c], x * 8, y * 8)));
+        return p;
+    }
+    function renderRacer() {
+        const cars = [8, 2, 7, 5].map(c => G.racerCar(c, state.seed));
+        state.rcTracks.forEach((t, i) => {
+            if (!t) return;
+            const p = trackPix(t);
+            cars.forEach((fr, k) => p.blit(fr[0], 52 + (k >> 1) * 15, 13 + (k & 1) * 14));
+            figure(toCanvas(p, Math.max(2, state.zoom - 1)), 'Strecke ' + (i + 1) + ': ' + G.RACER_TRACKS[t.track].name);
+        });
+        cars.forEach((fr, k) => animFigure(fr, 'Auto ' + (k + 1), 80));
+        const trackOpts = {}; G.RACER_TRACKS.forEach((t, i) => trackOpts[i] = t.name);
+        [0, 1, 2].forEach(i => {
+            const cur = state.rcTracks[i];
+            const opts = i === 0 ? {} : { '': '– keine –' };
+            Object.assign(opts, trackOpts);
+            control('Strecke ' + (i + 1), select('rcTrack' + i, opts, cur ? String(cur.track) : '', v => {
+                state.rcTracks[i] = v === '' ? null : { track: +v, style: (cur && cur.style) || G.RACER_TRACKS[+v].style };
+                if (!state.rcTracks[1]) state.rcTracks[2] = null;
+            }), 'rcTrack' + i);
+            if (cur) control('Stil ' + (i + 1), select('rcStyle' + i, G.RACER_STYLES, cur.style, v => cur.style = v), 'rcStyle' + i);
+        });
+        control('Runden', select('rcLaps', { 1: '1', 2: '2', 3: '3', 5: '5' }, String(state.rcLaps), v => state.rcLaps = +v), 'rcLaps');
+        control('Spieler', select('rcPlayers', { 1: '1 Spieler', 2: 'bis zu 2', 3: 'bis zu 3', 4: 'bis zu 4' }, String(state.rcPlayers), v => state.rcPlayers = +v), 'rcPlayers');
+        control('', button('Als Pixel-Racer-Spiel speichern', 'primary', exportRacer));
+        note('Rennspiel von oben, jede Strecke passt auf einen Bildschirm. Freie Plätze fahren Computer-Gegner; weitere Spieler übernehmen mit A ein Auto – auch online im Mehrspieler-Modus. Schnee ist rutschig.');
+    }
+    function exportRacer() {
+        const tracks = state.rcTracks.filter(t => t);
+        const p = G.racerProject({ seed: state.seed, tracks, laps: state.rcLaps, players: state.rcPlayers });
+        const fileName = p.name + '.png';
+        renderProjectInfo(p, fileName, 'racer');
+        const scene = trackPix(tracks[0]);
+        [8, 2, 7, 5].forEach((c, k) => scene.blit(G.racerCar(c, state.seed)[0], 52 + (k >> 1) * 15, 13 + (k & 1) * 14));
+        const small = toCanvas(scene, 1), cover = document.createElement('canvas');
+        cover.width = 320; cover.height = 240;
+        const ctx = cover.getContext('2d'); ctx.imageSmoothingEnabled = false; ctx.drawImage(small, 0, 0, 320, 240);
+        const canvas = encodeBlobIntoCanvas(cover, new TextEncoder().encode(p.mkcd));
+        canvas.toBlob(blob => saveFile(fileName, blob), 'image/png');
+    }
     function shooterStages() {
         const st = [state.shStages[0] || 'space'];
         if (state.shStages[1]) { st.push(state.shStages[1]); if (state.shStages[2]) st.push(state.shStages[2]); }
@@ -734,7 +787,9 @@
             '<ol><li>Auf <a href="https://arcade.makecode.com" target="_blank" rel="noopener">arcade.makecode.com</a> <strong>Importieren → Datei importieren</strong> wählen.</li>' +
             '<li>Die gespeicherte Datei <code>' + fileName + '</code> auswählen – das Bild enthält das ganze Projekt, es entsteht ein neues Projekt mit Demo-Level.</li>' +
             '<li>Alle Grafiken stehen im Tab <strong>Assets</strong> und in jedem Bild-Block unter <strong>Meine Assets</strong> zur Auswahl.</li>' +
-            (kind === 'shooter' ? '<li>Die <strong>Pixel-Shooter-Erweiterung</strong> wird beim Öffnen automatisch geladen. Das Spiel startet sofort; ' +
+            (kind === 'racer' ? '<li>Die <strong>Pixel-Racer-Erweiterung</strong> wird beim Öffnen automatisch geladen. Die Strecken ' +
+                p.names.tilemaps.map(n => '<code>' + n + '</code>').join(', ') + ' bearbeitest du im Tilemap-Editor (8×8-Kacheln, Blöcke „Strecke … Karte …“).</li>' :
+            kind === 'shooter' ? '<li>Die <strong>Pixel-Shooter-Erweiterung</strong> wird beim Öffnen automatisch geladen. Das Spiel startet sofort; ' +
                 'Stufen und Spielerzahl stellst du in den Blöcken „Stufe … Stil …“ und „erlaube bis zu … Spieler“ ein. Grafiken änderst du im Assets-Tab (Namen sh…).</li>' :
             $('withPixelquest').checked ? '<li>Die <strong>Pixel-Quest-Erweiterung</strong> wird beim Öffnen automatisch geladen. Das Spiel startet sofort; ' +
                 'die Welten ' + p.names.tilemaps.map(n => '<code>' + n + '</code>').join(', ') + ' bearbeitest du im Tilemap-Editor (Blöcke „Welt … Karte …“). Spielobjekte setzt du mit den Kacheln ' +
