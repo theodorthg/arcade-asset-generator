@@ -152,6 +152,7 @@
         scifi: { name: 'SciFi', mood: 'Neon-Nacht' },
         dungeon: { name: 'Dungeon', mood: 'düster' },
         underwater: { name: 'Unter Wasser', mood: 'Korallenriff' },
+        space: { name: 'Weltall', mood: 'Mondkrater' },
     };
 
     // =====================================================================
@@ -423,8 +424,89 @@
         return { sky, far, near };
     }
 
+    // unregelmäßiger Asteroid mit Kratern
+    function asteroid(p, r, cx, cy, rad, wrap) {
+        const bumps = [0, 1, 2, 3, 4, 5].map(() => r.range(0.75, 1.15)), ph = r.next() * 6;
+        for (let y = Math.floor(cy - rad * 1.3); y <= cy + rad * 1.3; y++) for (let x = Math.floor(cx - rad * 1.3); x <= cx + rad * 1.3; x++) {
+            const a = Math.atan2(y - cy, x - cx), d = Math.hypot(x - cx, y - cy);
+            const k = (a + Math.PI) / (Math.PI * 2) * 6, i = Math.floor(k) % 6, f = k - Math.floor(k);
+            const rr = rad * (bumps[i] * (1 - f) + bumps[(i + 1) % 6] * f) * (1 + 0.06 * Math.sin(a * 5 + ph));
+            if (d > rr) continue;
+            let c = 0xb;
+            if (x - cx + y - cy > rad * 0.5) c = 0xc;
+            else if (x - cx + y - cy < -rad * 0.9 && d > rr - 1.6) c = 0xd;
+            wrap ? p.setWrap(x, y, c) : p.set(x, y, c);
+        }
+        const nc = Math.max(1, Math.floor(rad / 3));
+        for (let k = 0; k < nc; k++) {
+            const x = Math.round(cx + r.range(-rad * 0.5, rad * 0.4)), y = Math.round(cy + r.range(-rad * 0.5, rad * 0.4));
+            const set = wrap ? (a, b, c) => p.setWrap(a, b, c) : (a, b, c) => p.set(a, b, c);
+            set(x, y, 0xc); set(x + 1, y, 0xc); set(x, y - 1, 0xc); set(x + 1, y + 1, 0xd);
+        }
+    }
+
+    function bgSpace(r) {
+        const sky = new Pix(BW, BH), far = new Pix(BW, BH), near = new Pix(BW, BH);
+        for (let y = 0; y < BH; y++) for (let x = 0; x < BW; x++) sky.set(x, y, dither(x, y, clamp01((y - 70) / 140)) ? 0xc : 0xf);
+        // Nebel: weiche, nahtlose Wolke aus Sinus-Überlagerung
+        const nb = [0, 1, 2, 3].map(() => ({ fx: r.int(1, 3), fy: r.range(0.03, 0.07), ph: r.next() * 6, py: r.next() * 6 }));
+        const ny = r.int(30, 60), nc = r.pick([[0xa, 3], [8, 9], [2, 4], [0xa, 9]]);
+        for (let y = 0; y < BH; y++) for (let x = 0; x < BW; x++) {
+            let v = 0;
+            nb.forEach(o => v += Math.sin(x / BW * Math.PI * 2 * o.fx + o.ph) * Math.cos(y * o.fy + o.py));
+            v = v / 4 + 0.55 - Math.abs(y - ny) / 55;
+            if (v > 0.55 && dither(x, y, (v - 0.55) * 3)) sky.set(x, y, v > 0.75 && dither(x, y, (v - 0.75) * 3) ? nc[1] : nc[0]);
+            else if (v > 0.42 && dither(x, y, (v - 0.42) * 2)) sky.set(x, y, 0xc);
+        }
+        // Sterne
+        for (let i = 0; i < 90; i++) {
+            const x = r.int(0, BW - 1), y = r.int(0, BH - 1);
+            sky.set(x, y, r.pick([1, 1, 1, 9, 5, 0xd]));
+            if (r.chance(0.07)) { sky.setWrap(x - 1, y, 0xb); sky.setWrap(x + 1, y, 0xb); sky.set(x, y - 1, 0xb); sky.set(x, y + 1, 0xb); sky.set(x, y, 1); }
+        }
+        // Planet mit Kontinenten und Schattenseite
+        const px = r.int(26, 134), py = r.int(18, 34), pr = r.int(10, 15);
+        const [sea, land] = r.pick([[8, 7], [4, 5], [2, 4], [6, 9]]);
+        const lfx = periodicNoise(r, 24, 4), lfy = periodicNoise(r, 24, 4);
+        for (let y = py - pr; y <= py + pr; y++) for (let x = px - pr; x <= px + pr; x++) {
+            const dx = x - px, dy = y - py;
+            if (dx * dx + dy * dy > pr * pr + pr * 0.6) continue;
+            let c = lfx(x - px + 30) + lfy(y - py + 30) > 1.1 ? land : sea;
+            const sh = (dx + 0.7 * dy) / pr;
+            if (sh > 0.7 || (sh > 0.45 && dither(x, y, (sh - 0.45) * 4))) c = 0xf;
+            else if (sh > 0.25 && dither(x, y, 0.5)) c = DARK[c];
+            if (sh < -0.75) c = LIGHT[c];
+            sky.set(x, y, c);
+        }
+        // Mondlandschaft mit Kratern (ferne Ebene)
+        const hf = fractal(r, BW, [3, 7]);
+        const top = x => Math.round(84 + hf(x) * 16);
+        for (let x = 0; x < BW; x++) for (let y = top(x); y < BH; y++) {
+            let c = y === top(x) ? 0xd : 0xb;
+            if (y > top(x) + 8 && dither(x, y, clamp01((y - top(x) - 8) / 22))) c = 0xc;
+            far.set(x, y, c);
+        }
+        const ncr = r.int(4, 6);
+        for (let k = 0; k < ncr; k++) {
+            const cx = Math.floor(k * BW / ncr + r.int(2, 18)), rx = r.int(4, 8), cy = top(cx) + r.int(4, 10);
+            for (let y = cy - 2; y <= cy + 2; y++) for (let x = cx - rx; x <= cx + rx; x++) {
+                const e = ((x - cx) / rx) ** 2 + ((y - cy) / 2.2) ** 2;
+                if (e <= 1) far.setWrap(x, y, y <= cy ? 0xc : 0xb);
+                else if (e <= 1.5 && y > cy) far.setWrap(x, y, 0xd);
+            }
+        }
+        // schwebende Asteroiden (nahe Ebene)
+        const na = r.int(4, 6);
+        for (let k = 0; k < na; k++) {
+            const cx = Math.floor(k * BW / na + r.int(0, 18)), cy = r.int(12, 72), rad = r.pick([3, 4, 5, 7, 9]);
+            asteroid(near, r, cx, cy, rad, true);
+        }
+        return { sky, far, near };
+    }
+
     function background(biome, seed) {
         const r = makeRand('bg:' + biome + ':' + seed);
+        if (biome === 'space') return bgSpace(r);
         if (biome === 'underwater') return bgUnderwater(r);
         if (biome === 'scifi') return bgScifi(r);
         if (biome === 'dungeon') return bgDungeon(r);
@@ -582,8 +664,62 @@
         return { groundTop: top, ground: sand, platform: coral, spikes: spk, goal, deco };
     }
 
+    function tilesSpace(r) {
+        // Mondgestein mit kleinen Kratern
+        const rock = new Pix(16, 16).rect(0, 0, 16, 16, 0xb);
+        speckle(rock, r, [0xc], 18);
+        for (let k = 0; k < 2; k++) {
+            const cx = r.int(3, 12), cy = r.int(3 + k * 6, 6 + k * 6);
+            rock.set(cx, cy, 0xc).set(cx + 1, cy, 0xc).set(cx - 1, cy, 0xc).set(cx, cy - 1, 0xc).set(cx - 1, cy - 1, 0xf);
+            rock.set(cx, cy + 1, 0xd).set(cx + 1, cy + 1, 0xd);
+        }
+        speckle(rock, r, [0xd], 4);
+        const top = rock.clone();
+        for (let x = 0; x < 16; x++) {
+            const d = 2 + ((x * 3 + r.int(0, 1)) % 4 === 0 ? 1 : 0);
+            for (let y = 0; y < d; y++) top.set(x, y, y === 0 ? 1 : 0xd);
+            top.set(x, d, dither(x, d, 0.5) ? 0xd : 0xb);
+        }
+        // Gitterträger der Raumstation (durchsichtige Lücken)
+        const girder = new Pix(16, 16);
+        girder.rect(0, 0, 16, 3, 0xb).rect(0, 13, 16, 3, 0xb).rect(0, 0, 16, 1, 0xd).rect(0, 15, 16, 1, 0xc).rect(0, 2, 16, 1, 0xc);
+        girder.line(0, 3, 9, 12, 0xb).line(1, 3, 10, 12, 0xc).line(9, 3, 15, 9, 0xb).line(15, 3, 6, 12, 0xb);
+        girder.rect(0, 3, 1, 10, 0xb).rect(15, 3, 1, 10, 0xc);
+        [[3, 1], [12, 1], [3, 14], [12, 14]].forEach(([x, y]) => girder.set(x, y, 0xf));
+        const lamp = r.pick([2, 5, 7]); girder.set(8, 1, lamp);
+        // leuchtende Kristalle als Gefahr
+        const spk = new Pix(16, 16), kc = r.pick([7, 9, 5]);
+        [[3, 7, 2], [8, 3, 2.5], [12, 6, 2]].forEach(([cx, ty, hw]) => {
+            for (let y = ty; y < 15; y++) {
+                const w = Math.min(hw, (y - ty) * 0.8 + 0.5);
+                for (let x = Math.floor(cx - w); x <= Math.ceil(cx + w); x++) if (Math.abs(x - cx) <= w) spk.set(x, y, x < cx ? LIGHT[kc] : x > cx ? DARK[kc] : kc);
+            }
+            spk.set(cx, ty, 1);
+        });
+        spk.outline(0xf).rect(1, 14, 14, 2, 0xb).rect(1, 14, 14, 1, 0xd);
+        // Ziel: Rakete
+        const goal = new Pix(16, 16), hull = 1, nose = r.pick([2, 4, 8]);
+        for (let y = 1; y < 13; y++) {
+            const w = y < 5 ? Math.floor((y + 1) / 2) : 3;
+            goal.rect(8 - w, y, w * 2, 1, y < 4 ? nose : (Math.floor(8 - w) === 8 - w ? hull : hull));
+            goal.set(8 + w - 1, y, y < 4 ? DARK[nose] : 0xd);
+        }
+        goal.circle(7.5, 7, 1.5, 9).set(7, 6, 1).set(8, 8, 8);
+        goal.rect(3, 10, 2, 4, nose).rect(11, 10, 2, 4, nose).rect(5, 13, 6, 1, 0xb);
+        goal.set(6, 14, 4).set(9, 14, 4).set(7, 14, 5).set(8, 14, 5).set(7, 15, 2).set(8, 15, 4);
+        goal.outline(0xf);
+        // Deko: Flagge im Mondstaub
+        const deco = new Pix(16, 16), fc = r.pick([[2, 1], [8, 5], [7, 1], [0xa, 5]]);
+        deco.rect(5, 3, 1, 12, 0xb).set(5, 2, 0xd);
+        deco.rect(6, 3, 7, 5, fc[0]).rect(6, 7, 7, 1, DARK[fc[0]]);
+        deco.set(9, 4, fc[1]).set(8, 5, fc[1]).set(9, 5, fc[1]).set(10, 5, fc[1]).set(9, 6, fc[1]); // Stern
+        deco.rect(2, 15, 9, 1, 0xd).set(10, 14, 0xb).set(11, 14, 0xb).set(12, 15, 0xb);
+        return { groundTop: top, ground: rock, platform: girder, spikes: spk, goal, deco };
+    }
+
     function tileset(biome, seed) {
         const r = makeRand('tiles:' + biome + ':' + seed);
+        if (biome === 'space') return tilesSpace(r);
         if (biome === 'underwater') return tilesUnderwater(r);
         if (biome === 'scifi') return tilesScifi(r);
         if (biome === 'dungeon') return tilesDungeon(r);
@@ -683,8 +819,10 @@
         bat: { name: 'Fledermaus', kind: 'flyer' },
         crab: { name: 'Krabbe', kind: 'walker' },
         fish: { name: 'Fisch', kind: 'flyer' },
+        alien: { name: 'Alien', kind: 'walker' },
+        ufo: { name: 'UFO', kind: 'flyer' },
     };
-    const BIOME_ENEMIES = { grass: ['slime', 'bird'], scifi: ['robot', 'drone'], dungeon: ['skeleton', 'bat'], underwater: ['crab', 'fish'] };
+    const BIOME_ENEMIES = { grass: ['slime', 'bird'], scifi: ['robot', 'drone'], dungeon: ['skeleton', 'bat'], underwater: ['crab', 'fish'], space: ['alien', 'ufo'] };
 
     function eyes(p, x, y, big) {
         p.set(x, y, 1); p.set(x + 1, y, big ? 1 : 0xf); p.set(x + 1, y + 1, 0xf); p.set(x, y + 1, 1);
@@ -821,16 +959,88 @@
         return { walk, dead: dead.outline(0xf) };
     }
 
+    function enemyAlien(r) {
+        const c = r.pick([7, 7, 5, 9, 3]), suit = r.pick([0xa, 8, 2, 0xb]);
+        const frame = (step, bob) => {
+            const p = new Pix(16, 16);
+            // Beine
+            p.rect(6 - step, 12, 2, 3, DARK[suit]).rect(9 + step, 12, 2, 3, DARK[suit]);
+            p.rect(5 - step, 15, 3, 1, 0xc).rect(9 + step, 15, 3, 1, 0xc);
+            // Körper im Anzug
+            p.rect(6, 9 + bob, 5, 4, suit).rect(6, 9 + bob, 5, 1, LIGHT[suit]).set(8, 11 + bob, 5);
+            p.set(5, 10 + bob, c).set(11, 10 + bob, c);
+            // großer Kopf mit einem Auge
+            p.ellipse(8.5, 5 + bob, 4, 3.4, c);
+            p.rect(6, 7 + bob, 5, 1, DARK[c]);
+            p.rect(8, 3 + bob, 3, 3, 1).rect(9, 4 + bob, 2, 2, 0xf).set(9, 4 + bob, 1);
+            // Antennen
+            p.set(6, 1 + bob, c).set(5, 0 + bob, LIGHT[c]).set(11, 1 + bob, c).set(12, 0 + bob, LIGHT[c]);
+            return p.outline(0xf);
+        };
+        const dead = new Pix(16, 16);
+        dead.ellipse(8, 13, 5, 2.4, c).rect(4, 15, 9, 1, suit).set(7, 12, 0xf).set(9, 12, 0xf).set(8, 13, 0xf).set(7, 14, 0xf).set(9, 14, 0xf);
+        return { walk: [frame(0, 0), frame(1, -1), frame(0, 0), frame(-1, -1)], dead: dead.outline(0xf) };
+    }
+
+    function enemyUfo(r) {
+        const hull = r.pick([0xb, 0xd, 8]), pilot = r.pick([7, 5, 3]);
+        const lights = [2, 5, 7, 9];
+        const body = (k) => {
+            const p = new Pix(16, 16);
+            p.ellipse(8, 5, 3, 3, 9); p.set(7, 3, 1).set(6, 4, 1);           // Glaskuppel
+            p.rect(7, 5, 3, 2, pilot).set(8, 5, 0xf);                          // Pilot
+            p.ellipse(8, 9, 7, 2.4, hull);
+            p.rect(1, 9, 15, 1, LIGHT[hull]).rect(3, 11, 11, 1, DARK[hull]);
+            for (let i = 0; i < 5; i++) p.set(2 + i * 3, 10, lights[(i + k) % 4]);
+            p.rect(6, 12, 5, 1, DARK[hull]);
+            if (k % 2 === 0) p.rect(7, 13, 3, 1, 5); // Antrieb flackert
+            return p;
+        };
+        const walk = [0, 1, 2, 3].map(k => body(k).outline(0xf));
+        const dead = body(0).map(c => c === 9 || c === 1 ? 0xc : c);
+        dead.set(4, 3, 0xb).set(3, 2, 0xc).set(5, 1, 0xb); // Rauch
+        return { walk, dead: dead.outline(0xf) };
+    }
+
     function enemy(type, seed) {
         const r = makeRand('enemy:' + type + ':' + seed);
-        const fn = { slime: enemySlime, robot: enemyRobot, skeleton: enemySkeleton, bird: enemyBird, drone: enemyDrone, bat: enemyBat, crab: enemyCrab, fish: enemyFish }[type];
+        const fn = { slime: enemySlime, robot: enemyRobot, skeleton: enemySkeleton, bird: enemyBird, drone: enemyDrone, bat: enemyBat, crab: enemyCrab, fish: enemyFish, alien: enemyAlien, ufo: enemyUfo }[type];
         return fn(r);
     }
 
     // =====================================================================
     //  BOSS (32x32): walk[2], hurt, attack
     // =====================================================================
-    const BOSS_TYPES = { golem: 'Stein-Golem', knight: 'Dunkler Ritter', mech: 'Kampf-Mech', kraken: 'Riesen-Krake' };
+    const BOSS_TYPES = { golem: 'Stein-Golem', knight: 'Dunkler Ritter', mech: 'Kampf-Mech', kraken: 'Riesen-Krake', alien: 'Alien-Riese' };
+
+    function bossAlien(r) {
+        const c = r.pick([7, 5, 3, 9]), suit = r.pick([0xa, 8, 2]), eye = r.pick([2, 0xa, 4]);
+        const frame = (step, bob, attack) => {
+            const p = new Pix(32, 32);
+            // Beine
+            p.rect(10 - step, 23, 4, 6, DARK[suit]).rect(18 + step, 23, 4, 6, DARK[suit]);
+            p.rect(8 - step, 29, 7, 2, 0xc).rect(18 + step, 29, 7, 2, 0xc);
+            // Rumpf im Raumanzug mit Brustlicht
+            p.rect(9, 15 + bob, 14, 9, suit).rect(9, 15 + bob, 14, 1, LIGHT[suit]).rect(9, 23 + bob, 14, 1, DARK[suit]);
+            p.rect(14, 18 + bob, 4, 3, 0xf).rect(15, 19 + bob, 2, 1, eye);
+            // riesiger Kopf, drei Augen
+            p.ellipse(16, 8 + bob, 10, 7.5, c);
+            for (let y = 0; y < 17; y++) for (let x = 5; x < 28; x++) if (p.get(x, y) === c && y > 11 + bob && dither(x, y, 0.5)) p.set(x, y, DARK[c]);
+            p.set(11, 3 + bob, LIGHT[c]).set(12, 2 + bob, LIGHT[c]).set(20, 3 + bob, LIGHT[c]);
+            [[9, 7], [15, 5], [21, 7]].forEach(([ex, ey]) => { p.rect(ex, ey + bob, 3, 3, 1).rect(ex + 1, ey + 1 + bob, 2, 2, eye).set(ex + 2, ey + 1 + bob, 0xf); });
+            if (attack) { p.rect(12, 11 + bob, 8, 3, 0xf).set(13, 11 + bob, 1).set(15, 11 + bob, 1).set(17, 11 + bob, 1).set(19, 11 + bob, 1).rect(14, 13 + bob, 4, 1, 2); }
+            else p.rect(13, 12 + bob, 6, 1, 0xf);
+            // Arme mit Klauen
+            const ay = attack ? 8 : 16;
+            p.rect(4, ay + bob, 4, 8, suit).rect(24, ay + bob, 4, 8, suit);
+            p.rect(3, ay + 8 + bob, 2, 2, c).rect(6, ay + 8 + bob, 2, 2, c).rect(24, ay + 8 + bob, 2, 2, c).rect(27, ay + 8 + bob, 2, 2, c);
+            return p.outline(0xf);
+        };
+        const walk = [frame(0, 0, false), frame(1, 1, false)];
+        const attack = frame(0, -1, true);
+        const hurt = walk[0].clone().map(v => v && v !== 0xf ? 1 : v);
+        return { walk, attack, hurt };
+    }
 
     function bossKraken(r) {
         const c = r.pick([0xa, 2, 3, 4]), eye = r.pick([5, 7, 9]);
@@ -877,6 +1087,7 @@
     function boss(type, seed) {
         const r = makeRand('boss:' + type + ':' + seed);
         if (type === 'kraken') return bossKraken(r);
+        if (type === 'alien') return bossAlien(r);
         const eye = r.pick([2, 5, 9, 7]);
         const main = type === 'golem' ? r.pick([0xb, 0xe, 6]) : type === 'mech' ? r.pick([0xb, 8, 6]) : r.pick([0xc, 0xa, 8]);
         const horns = r.chance(0.7);
@@ -1083,14 +1294,14 @@
 
     // Erweiterungen, die der Export optional einbinden kann (Name -> pxt.json-Abhängigkeit)
     const EXTENSIONS = {
-        pixelquest: { label: 'Pixel-Quest-Erweiterung', spec: 'github:theodorthg/pxt-pixelquest#v0.3.0' },
+        pixelquest: { label: 'Pixel-Quest-Erweiterung', spec: 'github:theodorthg/pxt-pixelquest#v0.4.0' },
     };
 
     // =====================================================================
     //  PIXEL-QUEST: Asset-Namen, Markierungs-Kacheln, Text-Level
     // =====================================================================
-    const PQ_STYLES = ['grass', 'scifi', 'dungeon', 'underwater'];
-    const PQ_STYLE_ENUM = ['Grass', 'SciFi', 'Dungeon', 'Underwater'];
+    const PQ_STYLES = ['grass', 'scifi', 'dungeon', 'underwater', 'space'];
+    const PQ_STYLE_ENUM = ['Grass', 'SciFi', 'Dungeon', 'Underwater', 'Space'];
     const PQ_MARKERS = ['pqStart', 'pqCoin', 'pqGem', 'pqHeart', 'pqChest', 'pqChestHeart', 'pqWalker', 'pqFlyer', 'pqBoss', 'pqGate'];
     const PQ_MARKER_CHARS = 'PcghCHefBX';   // Zeichen in Text-Leveln, gleiche Reihenfolge wie PQ_MARKERS
 
