@@ -1978,6 +1978,97 @@
     ];
 
     // =====================================================================
+    //  MAZE (Pac-Man-artig, 8x8-Kacheln, Labyrinth = ein Bildschirm 20x15)
+    // =====================================================================
+    const MAZE_STYLES = { neon: 'Neon', candy: 'Zuckerland', hedge: 'Heckenlabyrinth' };
+    // Legende: # Wand, . Punkt, o Kraftpille, ' ' leer, P Spielerstart, G Geisterhaus
+    function generateMaze(seed) {
+        const r = makeRand('maze:' + seed);
+        const W = 20, H = 15, g = Array.from({ length: H }, () => Array(W).fill('#'));
+        // Knoten der linken Hälfte: Spalten 1,3,5,7,9 / Zeilen 1,3,…,13
+        const NX = 5, NY = 7, nx = i => 1 + i * 2, ny = j => 1 + j * 2;
+        const link = (a, b) => { const [x0, y0] = [nx(a[0]), ny(a[1])], [x1, y1] = [nx(b[0]), ny(b[1])]; for (let y = Math.min(y0, y1); y <= Math.max(y0, y1); y++) for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++) g[y][x] = '.'; };
+        const seen = new Set(), stack = [[0, 0]], deg = {};
+        const key = (a) => a[0] + ',' + a[1];
+        const bump = a => deg[key(a)] = (deg[key(a)] || 0) + 1;
+        seen.add('0,0'); g[ny(0)][nx(0)] = '.';
+        while (stack.length) {
+            const cur = stack[stack.length - 1];
+            const nb = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => [cur[0] + dx, cur[1] + dy])
+                .filter(n => n[0] >= 0 && n[0] < NX && n[1] >= 0 && n[1] < NY && !seen.has(key(n)));
+            if (!nb.length) { stack.pop(); continue; }
+            const n = r.pick(nb); seen.add(key(n)); link(cur, n); bump(cur); bump(n); stack.push(n);
+        }
+        // Sackgassen auflösen und zusätzliche Schleifen einbauen
+        for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) {
+            const a = [i, j];
+            const opts = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([dx, dy]) => [i + dx, j + dy]).filter(n => n[0] >= 0 && n[0] < NX && n[1] >= 0 && n[1] < NY);
+            if ((deg[key(a)] || 0) < 2 || r.chance(0.18)) { const n = r.pick(opts); link(a, n); bump(a); bump(n); }
+        }
+        // spiegeln
+        for (let y = 0; y < H; y++) for (let x = 0; x < 10; x++) g[y][W - 1 - x] = g[y][x];
+        // Geisterhaus in der Mitte (Zeilen 6–8, Spalten 7–12), Ausgang oben
+        for (let y = 5; y <= 9; y++) for (let x = 6; x <= 13; x++) g[y][x] = (y === 5 || y === 9 || x === 6 || x === 13) ? '.' : '#';
+        for (let x = 8; x <= 11; x++) g[7][x] = 'G';
+        g[6][9] = ' '; g[6][10] = ' ';
+        // Tunnel links/rechts in Zeile 7
+        g[7][0] = ' '; g[7][1] = '.'; g[7][W - 1] = ' '; g[7][W - 2] = '.';
+        for (let x = 2; x <= 5; x++) if (g[7][x] === '#' && g[6][x] === '#' && g[8][x] === '#') { /* Wand bleibt */ }
+        // Kraftpillen in den Ecken, Spielerstarts unten in der Mitte
+        [[1, 1], [W - 2, 1], [1, H - 2], [W - 2, H - 2]].forEach(([x, y]) => g[y][x] = 'o');
+        const sy = 11;
+        for (let x = 8; x <= 11; x++) if (g[sy][x] === '#') g[sy][x] = '.';
+        if (g[10][9] === '#' && g[12][9] === '#') g[10][9] = g[10][10] = '.';
+        g[sy][8] = 'P'; g[sy][9] = 'P'; g[sy][10] = 'P'; g[sy][11] = 'P';
+        // Verbindung Start <-> Labyrinth sicherstellen (Spalten 8–11, Zeilen 10–13 nach unten/oben öffnen)
+        for (let y = 10; y <= 13; y++) if (g[y][8] === '#' && g[y][7] !== '#') g[y][8] = '.';
+        g[12][9] = g[12][9] === '#' ? '.' : g[12][9]; g[12][10] = g[12][9];
+        g[13][9] = '.'; g[13][10] = '.';
+        return g.map(row => row.join(''));
+    }
+    function mazeTiles(style, seed) {
+        const r = makeRand('mtiles:' + style + ':' + seed);
+        const T = () => new Pix(8, 8);
+        const wc = style === 'candy' ? [3, 1, 0xa] : style === 'hedge' ? [6, 7, 0xf] : [8, 9, 0xc];
+        const floorC = style === 'candy' ? 0xc : style === 'hedge' ? 0xe : 0xf;
+        const floor = T().rect(0, 0, 8, 8, floorC);
+        if (style === 'hedge') speckle(floor, r, [4], 3, 0, 7);
+        const wall = T().rect(0, 0, 8, 8, wc[0]).rect(0, 0, 8, 1, wc[1]).rect(0, 0, 1, 8, wc[1]).rect(0, 7, 8, 1, wc[2]).rect(7, 0, 1, 8, wc[2]);
+        if (style === 'hedge') speckle(wall, r, [7, 0xf], 6, 1, 6);
+        if (style === 'candy') wall.set(3, 3, 1).set(5, 5, 5);
+        const dotC = style === 'candy' ? 1 : style === 'hedge' ? 5 : 0xd;
+        const dot = floor.clone().rect(3, 3, 2, 2, dotC);
+        const power = floor.clone().circle(3.5, 3.5, 2.4, style === 'candy' ? 5 : 1).set(3, 2, dotC);
+        const empty = floor.clone();
+        const start = floor.clone().rect(2, 2, 4, 4, 5).rect(3, 3, 2, 2, floorC);
+        const house = floor.clone().rect(0, 3, 8, 2, 3);
+        return { floor: empty, wall, dot, power, start, house };
+    }
+    // Spielfigur 8x8, schaut nach rechts: [Mund offen, Mund zu]
+    function mazeHero(color) {
+        const f = (open) => {
+            const p = new Pix(8, 8).circle(3.5, 3.5, 3.6, color);
+            if (open) for (let y = 0; y < 8; y++) for (let x = 4; x < 8; x++) if (Math.abs(y - 3.5) < (x - 3) * 0.75) p.set(x, y, 0);
+            p.set(4, 1, 0xf).set(2, 2, LIGHT[color]);
+            return p;
+        };
+        return [f(true), f(false)];
+    }
+    // Geist 8x8: walk[2], scared[2], eyes
+    function mazeGhost(color) {
+        const body = (c, k, scared) => {
+            const p = new Pix(8, 8);
+            p.rect(1, 2, 6, 5, c).rect(2, 1, 4, 1, c);
+            for (let x = 1; x < 7; x++) if ((x + k) % 2) p.set(x, 7, c);
+            if (scared) { p.set(2, 3, 1).set(5, 3, 1).set(2, 5, 1).set(3, 6 - (k ? 1 : 0), 1).set(4, 5, 1).set(5, 6 - (k ? 0 : 1), 1); }
+            else { p.rect(2, 3, 2, 2, 1).rect(5, 3, 2, 2, 1).set(3, 4, 8).set(6, 4, 8); }
+            return p;
+        };
+        const eyes = new Pix(8, 8).rect(1, 3, 2, 2, 1).rect(5, 3, 2, 2, 1).set(2, 4, 8).set(6, 4, 8);
+        return { walk: [body(color, 0), body(color, 1)], scared: [body(8, 0, true), body(8, 1, true)], blink: body(1, 0, true).map(v => v === 1 ? 2 : v), eyes };
+    }
+
+    // =====================================================================
     //  Export-Helfer
     // =====================================================================
     function framesToTS(name, frames, indent) {
@@ -2106,6 +2197,7 @@
         pixelquest: { label: 'Pixel-Quest-Erweiterung', spec: 'github:theodorthg/pxt-pixelquest#v0.5.1' },
         pixelshooter: { label: 'Pixel-Shooter-Erweiterung', spec: 'github:theodorthg/pxt-pixelshooter#v0.2.0' },
         pixelracer: { label: 'Pixel-Racer-Erweiterung', spec: 'github:theodorthg/pxt-pixelracer#v0.1.0' },
+        pixelmaze: { label: 'Pixel-Maze-Erweiterung', spec: 'github:theodorthg/pxt-pixelmaze#v0.1.0' },
     };
 
     // =====================================================================
@@ -2445,7 +2537,53 @@
         return { files, mkcd, name, names: { images: [], animations: anims.map(a => a.name), tiles: tiles.map(t => t.name), tilemaps: tilemaps.map(t => t.name) } };
     }
 
+    // =====================================================================
+    //  PIXEL-MAZE: Projekt mit Labyrinthen (labyrinth1 …) im Tilemap-Editor
+    // =====================================================================
+    const MZ_STYLES = ['neon', 'candy', 'hedge'];
+    const MZ_STYLE_ENUM = ['Neon', 'Candy', 'Hedge'];
+    function mazeTrack(name, rows, style) {
+        const names = ['floor', 'wall', 'dot', 'power', 'start', 'house'].map(k => 'mz' + cap(style) + cap(k));
+        const CH = { ' ': 1, '#': 2, '.': 3, 'o': 4, 'P': 5, 'G': 6 }, cells = [], walls = [];
+        rows.forEach(r => [...r].forEach(c => { cells.push(CH[c]); walls.push(c === '#' ? 1 : 0); }));
+        return { name, w: 20, h: 15, grid: cells, walls, tileNames: names, tileSize: 8 };
+    }
+    /** opts.mazes: [{seed, style}], opts.players, opts.lives, opts.seed (Figuren/Farben) */
+    function mazeProject(opts) {
+        opts = opts || {};
+        const mazes = opts.mazes && opts.mazes.length ? opts.mazes : [{ seed: '1', style: 'neon' }, { seed: '2', style: 'candy' }, { seed: '7', style: 'hedge' }];
+        const name = opts.name || ('pixel-maze-' + mazes.map(m => m.style).join('-') + '-' + (opts.seed || mazes[0].seed));
+        const anims = [], images = [], tiles = [];
+        [5, 7, 3, 9].forEach((c, i) => anims.push({ name: 'mzHero' + (i + 1), frames: mazeHero(c), interval: 120 }));
+        [2, 3, 9, 4].forEach((c, i) => anims.push({ name: 'mzGhost' + (i + 1), frames: mazeGhost(c).walk, interval: 120 }));
+        const g0 = mazeGhost(2);
+        anims.push({ name: 'mzScared', frames: g0.scared, interval: 120 });
+        images.push({ name: 'mzBlink', p: g0.blink }, { name: 'mzEyes', p: g0.eyes });
+        mazes.map(m => m.style).filter((v, i, a) => a.indexOf(v) === i).forEach(st => {
+            const t = mazeTiles(st, '1');
+            ['floor', 'wall', 'dot', 'power', 'start', 'house'].forEach(k => tiles.push({ name: 'mz' + cap(st) + cap(k), p: t[k] }));
+        });
+        const tilemaps = mazes.map((m, i) => mazeTrack('labyrinth' + (i + 1), generateMaze(m.seed), m.style));
+        const spec = { images, anims, tiles, tilemaps, tileSize: 8 };
+        const mainTs = mazes.map((m, i) => `pixelmaze.setMaze(${i + 1}, tilemap\`labyrinth${i + 1}\`, pixelmaze.Style.${MZ_STYLE_ENUM[MZ_STYLES.indexOf(m.style)]})`)
+            .concat([`pixelmaze.setLives(${opts.lives || 3})`, `pixelmaze.setMaxPlayers(${opts.players || 4})`, 'pixelmaze.startGame()', '']).join('\n');
+        const readme = `# ${name}\n\nErzeugt mit dem Arcade Asset Generator. Pixel-Maze: Labyrinth-Spiel wie Pac-Man für 1 bis 4 Spieler. ` +
+            'Weitere Spieler steigen mit A ein, auch online im Mehrspieler-Modus.\nDie Labyrinthe labyrinth1 … bearbeitest du im Tilemap-Editor (8x8-Kacheln).\n';
+        const files = Object.assign({
+            'pxt.json': JSON.stringify({
+                name, description: 'Pixel-Maze aus dem Arcade Asset Generator',
+                dependencies: { device: '*', pixelmaze: EXTENSIONS.pixelmaze.spec },
+                files: ['main.blocks', 'main.ts', 'README.md', 'assets.json', 'images.g.jres', 'images.g.ts', 'tilemap.g.jres', 'tilemap.g.ts'],
+                preferredEditor: 'blocksprj',
+            }, null, 4),
+            'main.blocks': '', 'main.ts': mainTs, 'README.md': readme, 'assets.json': '',
+        }, buildAssetFiles(spec));
+        const mkcd = JSON.stringify({ meta: { cloudId: 'pxt/arcade', editor: 'blocksprj', name }, source: JSON.stringify(files, null, 2) });
+        return { files, mkcd, name, names: { images: images.map(i => i.name), animations: anims.map(a => a.name), tiles: tiles.map(t => t.name), tilemaps: tilemaps.map(t => t.name) } };
+    }
+
     return {
+        mazeProject, MZ_STYLES,
         racerProject, PR_STYLES,
         shooterAssets, shooterProject, PS_STYLES, PS_STYLE_ENUM,
         makecodeProject, buildAssetFiles, pixelquestAssets, markers, asciiLevel, exampleWorldRows, generateWorldRows,
@@ -2454,6 +2592,7 @@
         BIOMES, ENEMY_TYPES, BIOME_ENEMIES, BOSS_TYPES, HAIR_STYLES, HATS, CHAR_DEFAULTS,
         background, tileset, character, randomCharacter, enemy, boss, items,
         RACER_STYLES, RACER_TRACKS, racerCar, racerTiles, racerItems, racerTrack,
+        MAZE_STYLES, generateMaze, mazeTiles, mazeHero, mazeGhost,
         SHOOTER_STYLES, SHOOTER_ENEMIES, shooterBackground, shooterShip, shooterEnemy, shooterBoss, shooterItems,
         framesToTS, imageToTS,
     };
