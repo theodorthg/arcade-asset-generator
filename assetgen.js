@@ -25,6 +25,32 @@
         magic: { 3: '#ff9ae0', 4: '#ff8a50', 6: '#3aa8a8', 7: '#8ae07a', 8: '#2a2aa8', 9: '#9ae8ff', 0xa: '#a83ae0', 0xb: '#c08ad0', 0xc: '#4a2a70' },
     };
     const PALETTE_BASE = [1, 2, 5, 0xd, 0xe, 0xf];
+    // Paletten der Genre-Stile: entweder eine Biom-Palette oder eigene Töne (gleiche Basisfarben wie oben)
+    const STYLE_PALETTE_OVERRIDES = {
+        neon: { 3: '#ff6ad5', 4: '#ff9a3c', 6: '#00e5d4', 7: '#39ff7a', 8: '#2a2aff', 9: '#5ff7ff', 0xa: '#c43cff', 0xb: '#9a8cff', 0xc: '#3a1a6a' },
+        candy: { 3: '#ffb0d8', 4: '#ffb070', 6: '#5fd0c8', 7: '#a8f08a', 8: '#6a7ae0', 9: '#b0f4ff', 0xa: '#c070e0', 0xb: '#e0b0d0', 0xc: '#8a5a9a' },
+        hedge: { 3: '#e8a0b8', 4: '#e08a3a', 6: '#2f8a5a', 7: '#5abf3a', 8: '#1a3a7a', 9: '#8ad8e8', 0xa: '#7a3a9a', 0xb: '#9a8a6a', 0xc: '#3a5a2a' },
+        brick: { 3: '#e89aa8', 4: '#d0703a', 6: '#2a8a8a', 7: '#6ac04a', 8: '#1a3a9a', 9: '#7ad8f0', 0xa: '#8a3aa0', 0xb: '#a08070', 0xc: '#4a3048' },
+        lava: { 3: '#ff8a7a', 4: '#ff6a1a', 6: '#2a7a7a', 7: '#8ac040', 8: '#3a1a5a', 9: '#ffb070', 0xa: '#a02a6a', 0xb: '#a07060', 0xc: '#4a1a1a' },
+    };
+    const GENRE_PALETTES = {
+        shooter: { space: 'space', sea: 'underwater', desert: 'desert', ice: 'ice' },
+        racer: { grass: 'grass', desert: 'desert', snow: 'ice' },
+        maze: { neon: '=neon', candy: '=candy', hedge: '=hedge' },
+        bros: { brick: '=brick', ice: 'ice', lava: '=lava' },
+    };
+    function genrePalette(genre, style) {
+        const ref = (GENRE_PALETTES[genre] || {})[style];
+        if (!ref) return PALETTE;
+        if (ref[0] === '=') { const o = STYLE_PALETTE_OVERRIDES[ref.slice(1)]; return PALETTE.map((c, i) => o[i] || c); }
+        return biomePalette(ref);
+    }
+    // TS-Datei mit je einer 48-Byte-Palette pro Stil (Reihenfolge = styles)
+    function paletteTS(ns, genre, styles, header) {
+        return (header || '// AUTOMATISCH ERZEUGT von tools/build-palettes.js.') + `\nnamespace ${ns} {\n    // je Stil 16 Farben zu je 3 Byte (RGB)\n    export const list: Buffer[] = [\n` +
+            styles.map(st => `        hex\`${paletteHex(genrePalette(genre, st))}\``).join(',\n') + '\n    ]\n}\n';
+    }
+    const palOpt = (opts, genre, style) => opts.palette === false ? {} : { palette: paletteList(genrePalette(genre, style)) };
     function biomePalette(biome) {
         const o = BIOME_PALETTE_OVERRIDES[biome] || {};
         return PALETTE.map((c, i) => o[i] || c);
@@ -2302,10 +2328,10 @@
     // Erweiterungen, die der Export optional einbinden kann (Name -> pxt.json-Abhängigkeit)
     const EXTENSIONS = {
         pixelquest: { label: 'Pixel-Quest-Erweiterung', spec: 'github:theodorthg/pxt-pixelquest#v0.6.0' },
-        pixelshooter: { label: 'Pixel-Shooter-Erweiterung', spec: 'github:theodorthg/pxt-pixelshooter#v0.2.0' },
-        pixelracer: { label: 'Pixel-Racer-Erweiterung', spec: 'github:theodorthg/pxt-pixelracer#v0.1.0' },
-        pixelmaze: { label: 'Pixel-Maze-Erweiterung', spec: 'github:theodorthg/pxt-pixelmaze#v0.1.0' },
-        pixelbros: { label: 'Pixel-Bros-Erweiterung', spec: 'github:theodorthg/pxt-pixelbros#v0.1.0' },
+        pixelshooter: { label: 'Pixel-Shooter-Erweiterung', spec: 'github:theodorthg/pxt-pixelshooter#v0.3.0' },
+        pixelracer: { label: 'Pixel-Racer-Erweiterung', spec: 'github:theodorthg/pxt-pixelracer#v0.2.0' },
+        pixelmaze: { label: 'Pixel-Maze-Erweiterung', spec: 'github:theodorthg/pxt-pixelmaze#v0.2.0' },
+        pixelbros: { label: 'Pixel-Bros-Erweiterung', spec: 'github:theodorthg/pxt-pixelbros#v0.2.0' },
     };
 
     // =====================================================================
@@ -2591,17 +2617,17 @@
         const name = opts.name || ('pixel-shooter-' + (opts.horizontal ? 'h-' : '') + stages.join('-') + '-' + seed);
         const spec = shooterAssets({ stages, seed });
         const mainTs = (opts.horizontal ? ['pixelshooter.setDirection(pixelshooter.Direction.Right)'] : []).concat(stages.map((st, i) => `pixelshooter.setStage(${i + 1}, pixelshooter.Style.${PS_STYLE_ENUM[PS_STYLES.indexOf(st)]})`)
-            .concat([`pixelshooter.setStageCount(${stages.length})`, `pixelshooter.setMaxPlayers(${opts.players || 2})`, 'pixelshooter.setLives(3)', 'pixelshooter.startGame()', ''])).join('\n');
+            .concat([`pixelshooter.setStageCount(${stages.length})`, `pixelshooter.setMaxPlayers(${opts.players || 2})`, 'pixelshooter.setLives(3)', ...(opts.palette === false ? ['pixelshooter.useStylePalettes(false)'] : []), 'pixelshooter.startGame()', ''])).join('\n');
         const readme = `# ${name}\n\nErzeugt mit dem Arcade Asset Generator (Seed "${seed}"). Pixel-Shooter: senkrecht scrollender Shooter für bis zu 4 Spieler.\n` +
             'Weitere Spieler steigen mit A auf ihrem Controller ein, auch online im Mehrspieler-Modus. Alle Grafiken liegen im Assets-Tab ' +
             '(Namen wie shShip1, shFighter, shBoss, shSpaceFar); was du dort änderst, übernimmt das Spiel.\n';
         const files = Object.assign({
-            'pxt.json': JSON.stringify({
+            'pxt.json': JSON.stringify(Object.assign({
                 name, description: 'Pixel-Shooter aus dem Arcade Asset Generator',
                 dependencies: { device: '*', pixelshooter: EXTENSIONS.pixelshooter.spec },
                 files: ['main.blocks', 'main.ts', 'README.md', 'assets.json', 'images.g.jres', 'images.g.ts', 'tilemap.g.jres', 'tilemap.g.ts'],
                 preferredEditor: 'blocksprj',
-            }, null, 4),
+            }, palOpt(opts, 'shooter', stages[0])), null, 4),
             'main.blocks': '', 'main.ts': mainTs, 'README.md': readme, 'assets.json': '',
         }, buildAssetFiles(spec));
         const mkcd = JSON.stringify({ meta: { cloudId: 'pxt/arcade', editor: 'blocksprj', name }, source: JSON.stringify(files, null, 2) });
@@ -2629,17 +2655,17 @@
         const tilemaps = tracks.map((t, i) => racerTrack('strecke' + (i + 1), RACER_TRACKS[t.track].rows, t.style));
         const spec = { images: [], anims, tiles, tilemaps, tileSize: 8 };
         const mainTs = tracks.map((t, i) => `pixelracer.setTrack(${i + 1}, tilemap\`strecke${i + 1}\`, pixelracer.Style.${PR_STYLE_ENUM[PR_STYLES.indexOf(t.style)]})`)
-            .concat([`pixelracer.setLaps(${opts.laps || 3})`, `pixelracer.setMaxPlayers(${opts.players || 4})`, 'pixelracer.startGame()', '']).join('\n');
+            .concat([`pixelracer.setLaps(${opts.laps || 3})`, `pixelracer.setMaxPlayers(${opts.players || 4})`, ...(opts.palette === false ? ['pixelracer.useStylePalettes(false)'] : []), 'pixelracer.startGame()', '']).join('\n');
         const readme = `# ${name}\n\nErzeugt mit dem Arcade Asset Generator (Seed "${seed}"). Pixel-Racer: Rennspiel von oben für 1 bis 4 Spieler, ` +
             'freie Plätze fahren Computer-Gegner. Weitere Spieler steigen mit A ein, auch online im Mehrspieler-Modus.\n' +
             'Die Strecken strecke1 … bearbeitest du im Tilemap-Editor (8x8-Kacheln): Kontrollpunkte rcCheck1, rcCheck2 … in Fahrtrichtung, Start-Kacheln vor der Ziellinie.\n';
         const files = Object.assign({
-            'pxt.json': JSON.stringify({
+            'pxt.json': JSON.stringify(Object.assign({
                 name, description: 'Pixel-Racer aus dem Arcade Asset Generator',
                 dependencies: { device: '*', pixelracer: EXTENSIONS.pixelracer.spec },
                 files: ['main.blocks', 'main.ts', 'README.md', 'assets.json', 'images.g.jres', 'images.g.ts', 'tilemap.g.jres', 'tilemap.g.ts'],
                 preferredEditor: 'blocksprj',
-            }, null, 4),
+            }, palOpt(opts, 'racer', tracks[0].style)), null, 4),
             'main.blocks': '', 'main.ts': mainTs, 'README.md': readme, 'assets.json': '',
         }, buildAssetFiles(spec));
         const mkcd = JSON.stringify({ meta: { cloudId: 'pxt/arcade', editor: 'blocksprj', name }, source: JSON.stringify(files, null, 2) });
@@ -2675,16 +2701,16 @@
         const tilemaps = mazes.map((m, i) => mazeTrack('labyrinth' + (i + 1), generateMaze(m.seed), m.style));
         const spec = { images, anims, tiles, tilemaps, tileSize: 8 };
         const mainTs = mazes.map((m, i) => `pixelmaze.setMaze(${i + 1}, tilemap\`labyrinth${i + 1}\`, pixelmaze.Style.${MZ_STYLE_ENUM[MZ_STYLES.indexOf(m.style)]})`)
-            .concat([`pixelmaze.setLives(${opts.lives || 3})`, `pixelmaze.setMaxPlayers(${opts.players || 4})`, 'pixelmaze.startGame()', '']).join('\n');
+            .concat([`pixelmaze.setLives(${opts.lives || 3})`, `pixelmaze.setMaxPlayers(${opts.players || 4})`, ...(opts.palette === false ? ['pixelmaze.useStylePalettes(false)'] : []), 'pixelmaze.startGame()', '']).join('\n');
         const readme = `# ${name}\n\nErzeugt mit dem Arcade Asset Generator. Pixel-Maze: Labyrinth-Spiel wie Pac-Man für 1 bis 4 Spieler. ` +
             'Weitere Spieler steigen mit A ein, auch online im Mehrspieler-Modus.\nDie Labyrinthe labyrinth1 … bearbeitest du im Tilemap-Editor (8x8-Kacheln).\n';
         const files = Object.assign({
-            'pxt.json': JSON.stringify({
+            'pxt.json': JSON.stringify(Object.assign({
                 name, description: 'Pixel-Maze aus dem Arcade Asset Generator',
                 dependencies: { device: '*', pixelmaze: EXTENSIONS.pixelmaze.spec },
                 files: ['main.blocks', 'main.ts', 'README.md', 'assets.json', 'images.g.jres', 'images.g.ts', 'tilemap.g.jres', 'tilemap.g.ts'],
                 preferredEditor: 'blocksprj',
-            }, null, 4),
+            }, palOpt(opts, 'maze', mazes[0].style)), null, 4),
             'main.blocks': '', 'main.ts': mainTs, 'README.md': readme, 'assets.json': '',
         }, buildAssetFiles(spec));
         const mkcd = JSON.stringify({ meta: { cloudId: 'pxt/arcade', editor: 'blocksprj', name }, source: JSON.stringify(files, null, 2) });
@@ -2727,17 +2753,17 @@
         const tilemaps = stages.map((s, i) => brosStage('buehne' + (i + 1), BROS_LAYOUTS[s.layout % BROS_LAYOUTS.length].rows, s.style));
         const spec = { images, anims, tiles, tilemaps, tileSize: 8 };
         const mainTs = stages.map((s, i) => `pixelbros.setStage(${i + 1}, tilemap\`buehne${i + 1}\`, pixelbros.Style.${PB_STYLE_ENUM[PB_STYLES.indexOf(s.style)]})`)
-            .concat([`pixelbros.setLives(${opts.lives || 3})`, `pixelbros.setMaxPlayers(${opts.players || 4})`, `pixelbros.setPhasesPerStage(${opts.phases || 3})`, 'pixelbros.startGame()', '']).join('\n');
+            .concat([`pixelbros.setLives(${opts.lives || 3})`, `pixelbros.setMaxPlayers(${opts.players || 4})`, `pixelbros.setPhasesPerStage(${opts.phases || 3})`, ...(opts.palette === false ? ['pixelbros.useStylePalettes(false)'] : []), 'pixelbros.startGame()', '']).join('\n');
         const readme = `# ${name}\n\nErzeugt mit dem Arcade Asset Generator. Pixel-Bros: Jump & Run für 1 bis 4 Spieler gleichzeitig auf festen Bühnen. ` +
             'Stoß Gegner von unten um und kick sie weg. Weitere Spieler steigen mit A ein, auch online im Mehrspieler-Modus.\n' +
             'Die Bühnen buehne1 … bearbeitest du im Tilemap-Editor (8x8-Kacheln, 20x15 Felder).\n';
         const files = Object.assign({
-            'pxt.json': JSON.stringify({
+            'pxt.json': JSON.stringify(Object.assign({
                 name, description: 'Pixel-Bros aus dem Arcade Asset Generator',
                 dependencies: { device: '*', pixelbros: EXTENSIONS.pixelbros.spec },
                 files: ['main.blocks', 'main.ts', 'README.md', 'assets.json', 'images.g.jres', 'images.g.ts', 'tilemap.g.jres', 'tilemap.g.ts'],
                 preferredEditor: 'blocksprj',
-            }, null, 4),
+            }, palOpt(opts, 'bros', stages[0].style)), null, 4),
             'main.blocks': '', 'main.ts': mainTs, 'README.md': readme, 'assets.json': '',
         }, buildAssetFiles(spec));
         const mkcd = JSON.stringify({ meta: { cloudId: 'pxt/arcade', editor: 'blocksprj', name }, source: JSON.stringify(files, null, 2) });
@@ -2751,7 +2777,7 @@
         shooterAssets, shooterProject, PS_STYLES, PS_STYLE_ENUM,
         makecodeProject, buildAssetFiles, pixelquestAssets, markers, asciiLevel, exampleWorldRows, generateWorldRows,
         PQ_STYLES, PQ_STYLE_ENUM, PQ_MARKERS, PQ_MARKER_CHARS, f4Bytes, EXTENSIONS,
-        PALETTE, BIOME_PALETTE_OVERRIDES, PALETTE_BASE, biomePalette, paletteList, paletteHex, COLOR_NAMES, HEX, DARK, LIGHT, Pix, makeRand, hashSeed,
+        PALETTE, STYLE_PALETTE_OVERRIDES, GENRE_PALETTES, genrePalette, paletteTS, BIOME_PALETTE_OVERRIDES, PALETTE_BASE, biomePalette, paletteList, paletteHex, COLOR_NAMES, HEX, DARK, LIGHT, Pix, makeRand, hashSeed,
         BIOMES, ENEMY_TYPES, BIOME_ENEMIES, BOSS_TYPES, HAIR_STYLES, HATS, CHAR_DEFAULTS,
         background, tileset, character, randomCharacter, enemy, boss, items,
         RACER_STYLES, RACER_TRACKS, racerCar, racerTiles, racerItems, racerTrack,

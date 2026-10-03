@@ -35,6 +35,8 @@
     h1 { font: 700 30px/1.1 var(--display); margin: 0; letter-spacing: .01em; text-wrap: balance; }
     header p { margin: 4px 0 0; color: var(--muted); max-width: 62ch; }
     .palette { display: grid; grid-template-columns: repeat(15, 18px); gap: 2px; }
+    .palstrip { display: flex; gap: 1px; margin-top: 4px; flex-wrap: wrap; }
+    .palstrip span { width: 10px; height: 10px; border-radius: 2px; }
     .palette span { height: 26px; border-radius: 2px; font: 10px/1 var(--mono); display: flex; align-items: end; justify-content: center; padding-bottom: 2px; color: #fff; text-shadow: 0 0 2px #000; }
     .toolbar { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; padding-block: 12px; border-block: 1px solid var(--line); margin-top: 14px; }
     .toolbar label { display: flex; gap: 6px; align-items: center; color: var(--muted); font-size: 13px; }
@@ -110,7 +112,7 @@
         <span class="spacer"></span>
         <button id="exportAll">Komplettes Set als Code</button>
         <label for="withPixelquest" title="Spielbares Pixel-Quest-Projekt: Erweiterung, Assets unter den Namen der Engine, Markierungs-Kacheln und eine Beispielwelt im Tilemap-Editor."><input type="checkbox" id="withPixelquest" checked> als Pixel-Quest-Spiel</label>
-        <label for="biomePalette" title="Jedes Biom bekommt eine eigene 16-Farben-Palette (z. B. mehr Blautöne unter Wasser). Die Vorschau zeigt sie, der Export setzt sie, und Pixel-Quest wechselt sie beim Laden jeder Welt. Weiß, Rot, Gelb, Beige, Braun und Schwarz bleiben überall gleich."><input type="checkbox" id="biomePalette" checked> Biom-Paletten</label>
+        <label for="biomePalette" title="Jedes Biom und jeder Stil von Shooter, Racing, Maze und Bros bekommt eine eigene 16-Farben-Palette (z. B. mehr Blautöne unter Wasser). Die Vorschau zeigt sie, der Export setzt sie, und Pixel-Quest wechselt sie beim Laden jeder Welt. Weiß, Rot, Gelb, Beige, Braun und Schwarz bleiben überall gleich."><input type="checkbox" id="biomePalette" checked> Paletten je Biom/Stil</label>
         <button class="primary" id="exportProject">Als MakeCode-Projekt speichern</button>
     </div>
     <div class="toolbar worlds" id="worldsBar">
@@ -177,7 +179,30 @@
     for (let c = 1; c < 16; c++) { const s = document.createElement('span'); s.textContent = G.HEX[c]; s.title = G.COLOR_NAMES[c]; $('palette').appendChild(s); }
     // Pixel-Quest-Tabs zeigen die Palette des gewählten Bioms, die übrigen Genres die Standardpalette
     const PQ_TABS = ['bg', 'tiles', 'char', 'enemy', 'boss', 'items'];
-    function curPal() { return PQ_TABS.includes(state.tab) && $('biomePalette').checked ? G.biomePalette(state.biome) : G.PALETTE; }
+    let palOverride = null;
+    function gp(genre, style) { return $('biomePalette').checked ? G.genrePalette(genre, style) : G.PALETTE; }
+    function firstOf(list) { return list.find(x => x) || {}; }
+    function curPal() {
+        if (palOverride) return palOverride;
+        if (!$('biomePalette').checked) return G.PALETTE;
+        if (PQ_TABS.includes(state.tab)) return G.biomePalette(state.biome);
+        if (state.tab === 'shooter') return G.genrePalette('shooter', state.shStyle);
+        if (state.tab === 'racer') return G.genrePalette('racer', firstOf(state.rcTracks).style);
+        if (state.tab === 'maze') return G.genrePalette('maze', firstOf(state.mzMazes).style);
+        if (state.tab === 'bros') return G.genrePalette('bros', firstOf(state.pbStages).style);
+        return G.PALETTE;
+    }
+    function palStrip(pal) {
+        const d = document.createElement('div'); d.className = 'palstrip'; d.setAttribute('aria-label', 'Palette');
+        for (let c = 1; c < 16; c++) { const sp = document.createElement('span'); sp.style.background = pal[c]; sp.title = G.HEX[c] + ' ' + G.COLOR_NAMES[c] + ' ' + pal[c].slice(0, 7); d.appendChild(sp); }
+        return d;
+    }
+    // Bühnen-/Strecken-Vorschau in ihrer eigenen Palette, mit Farbstreifen der Palette
+    function stageFig(pix, scale, caption, pal) {
+        palOverride = pal; const cv = toCanvas(pix, scale); palOverride = null;
+        const f = figure(cv, caption); f.insertBefore(palStrip(pal), f.lastChild);
+        return f;
+    }
     function paintPalette() { const pal = curPal(); [...$('palette').children].forEach((s, i) => s.style.background = pal[i + 1]); }
     for (const k in G.BIOMES) $('biome').add(new Option(G.BIOMES[k].name + ' – ' + G.BIOMES[k].mood, k));
     ['world1', 'world2', 'world3'].forEach((id, i) => {
@@ -703,7 +728,8 @@
             ctx.drawImage(ship[1][t >> 2 & 1], 88 + Math.round(Math.cos(t / 23) * 12), 98);
         };
         tick(); if (!still) timers.push(setInterval(tick, 33));
-        figure(cv, 'Scroll-Vorschau');
+        const sf = figure(cv, 'Scroll-Vorschau (' + G.SHOOTER_STYLES[state.shStyle] + ')'); sf.insertBefore(palStrip(curPal()), sf.lastChild);
+        shooterStages().forEach((st, i) => { const f = figure(palStrip(gp('shooter', st)), 'Palette Stufe ' + (i + 1) + ': ' + G.SHOOTER_STYLES[st]); });
         sh.ships.forEach((f, i) => animFigure(f, 'Spieler ' + (i + 1), 120));
         Object.keys(G.SHOOTER_ENEMIES).forEach((k, i) => animFigure(sh.enemies[i], G.SHOOTER_ENEMIES[k], 160));
         animFigure(sh.boss.fly, 'Endboss', 200);
@@ -738,7 +764,7 @@
             if (!t) return;
             const p = trackPix(t);
             cars.forEach((fr, k) => p.blit(fr[0], 52 + (k >> 1) * 15, 13 + (k & 1) * 14));
-            figure(toCanvas(p, Math.max(2, state.zoom - 1)), 'Strecke ' + (i + 1) + ': ' + G.RACER_TRACKS[t.track].name);
+            stageFig(p, Math.max(2, state.zoom - 1), 'Strecke ' + (i + 1) + ': ' + G.RACER_TRACKS[t.track].name + ' (' + G.RACER_STYLES[t.style] + ')', gp('racer', t.style));
         });
         cars.forEach((fr, k) => animFigure(fr, 'Auto ' + (k + 1), 80));
         const trackOpts = {}; G.RACER_TRACKS.forEach((t, i) => trackOpts[i] = t.name);
@@ -759,12 +785,12 @@
     }
     function exportRacer() {
         const tracks = state.rcTracks.filter(t => t);
-        const p = G.racerProject({ seed: state.seed, tracks, laps: state.rcLaps, players: state.rcPlayers });
+        const p = G.racerProject({ seed: state.seed, tracks, laps: state.rcLaps, players: state.rcPlayers, palette: $('biomePalette').checked });
         const fileName = p.name + '.png';
         renderProjectInfo(p, fileName, 'racer');
         const scene = trackPix(tracks[0]);
         [8, 2, 7, 5].forEach((c, k) => scene.blit(G.racerCar(c, state.seed)[0], 52 + (k >> 1) * 15, 13 + (k & 1) * 14));
-        const small = toCanvas(scene, 1), cover = document.createElement('canvas');
+        const small = toCanvas(scene, 1), cover = document.createElement('canvas'); palOverride = null;
         cover.width = 320; cover.height = 240;
         const ctx = cover.getContext('2d'); ctx.imageSmoothingEnabled = false; ctx.drawImage(small, 0, 0, 320, 240);
         const canvas = encodeBlobIntoCanvas(cover, new TextEncoder().encode(p.mkcd));
@@ -785,7 +811,7 @@
         return p;
     }
     function renderBros() {
-        state.pbStages.forEach((st, i) => { if (st) figure(toCanvas(brosPix(st), Math.max(2, state.zoom - 1)), 'Bühne ' + (i + 1) + ': ' + G.BROS_LAYOUTS[st.layout].name); });
+        state.pbStages.forEach((st, i) => { if (st) stageFig(brosPix(st), Math.max(2, state.zoom - 1), 'Bühne ' + (i + 1) + ': ' + G.BROS_LAYOUTS[st.layout].name + ' (' + G.BROS_STYLES[st.style] + ')', gp('bros', st.style)); });
         [2, 7, 9, 5].forEach((c, i) => animFigure(G.brosHero(c).slice(0, 3), 'Spieler ' + (i + 1), 110));
         const EN = { turtle: 'Panzerkröte', crab: 'Krabbe', fly: 'Hüpffliege' };
         G.PB_ENEMIES.forEach(e => { animFigure(G.brosEnemy(e, false), EN[e], 160); animFigure(G.brosEnemy(e, true), EN[e] + ' (wütend)', 110); });
@@ -810,7 +836,7 @@
     }
     function exportBros() {
         const stages = state.pbStages.filter(s => s);
-        const p = G.brosProject({ stages, players: state.pbPlayers, phases: state.pbPhases });
+        const p = G.brosProject({ stages, players: state.pbPlayers, phases: state.pbPhases, palette: $('biomePalette').checked });
         const fileName = p.name + '.png';
         renderProjectInfo(p, fileName, 'bros');
         const small = toCanvas(brosPix(stages[0]), 1), cover = document.createElement('canvas');
@@ -829,7 +855,7 @@
         return p;
     }
     function renderMaze() {
-        state.mzMazes.forEach((m, i) => { if (m) figure(toCanvas(mazePix(m), Math.max(2, state.zoom - 1)), 'Labyrinth ' + (i + 1) + ' (Seed ' + m.seed + ')'); });
+        state.mzMazes.forEach((m, i) => { if (m) stageFig(mazePix(m), Math.max(2, state.zoom - 1), 'Labyrinth ' + (i + 1) + ' (Seed ' + m.seed + ', ' + G.MAZE_STYLES[m.style] + ')', gp('maze', m.style)); });
         [5, 7, 3, 9].forEach((c, i) => animFigure(G.mazeHero(c), 'Spieler ' + (i + 1), 120));
         [2, 3, 9, 4].forEach((c, i) => animFigure(G.mazeGhost(c).walk, 'Geist ' + (i + 1), 160));
         const g0 = G.mazeGhost(2);
@@ -852,7 +878,7 @@
     }
     function exportMaze() {
         const mazes = state.mzMazes.filter(m => m);
-        const p = G.mazeProject({ mazes, players: state.mzPlayers });
+        const p = G.mazeProject({ mazes, players: state.mzPlayers, palette: $('biomePalette').checked });
         const fileName = p.name + '.png';
         renderProjectInfo(p, fileName, 'maze');
         const small = toCanvas(mazePix(mazes[0]), 1), cover = document.createElement('canvas');
@@ -868,7 +894,8 @@
     }
     function exportShooter() {
         const stages = shooterStages();
-        const p = G.shooterProject({ seed: state.seed, stages, players: state.shPlayers, horizontal: state.shHorizontal });
+        const p = G.shooterProject({ seed: state.seed, stages, players: state.shPlayers, horizontal: state.shHorizontal, palette: $('biomePalette').checked });
+        palOverride = gp('shooter', stages[0]);
         const fileName = p.name + '.png';
         renderProjectInfo(p, fileName, 'shooter');
         const bg = G.shooterBackground(stages[0], state.seed), scene = bg.far.clone().blit(bg.near, 0, 0);
