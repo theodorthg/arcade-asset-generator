@@ -151,6 +151,7 @@
         grass: { name: 'Gras', mood: 'sonnig' },
         scifi: { name: 'SciFi', mood: 'Neon-Nacht' },
         dungeon: { name: 'Dungeon', mood: 'düster' },
+        underwater: { name: 'Unter Wasser', mood: 'Korallenriff' },
     };
 
     // =====================================================================
@@ -337,8 +338,94 @@
         return { sky, far, near };
     }
 
+    // kleine Luftblase (Ring mit Glanzpunkt, innen durchsichtig)
+    function bubble(p, x, y, rad) {
+        if (rad <= 1) { p.setWrap(x, y - 1, 9); p.setWrap(x - 1, y, 9); p.setWrap(x + 1, y, 9); p.setWrap(x, y + 1, 9); return; }
+        for (let a = 0; a < 360; a += 15) p.setWrap(Math.round(x + Math.cos(a * Math.PI / 180) * rad), Math.round(y + Math.sin(a * Math.PI / 180) * rad), 9);
+        p.setWrap(x - 1, y - 1, 1);
+    }
+
+    function bgUnderwater(r) {
+        const sky = new Pix(BW, BH), far = new Pix(BW, BH), near = new Pix(BW, BH);
+        // Wasser: hell an der Oberfläche, nach unten dunkler
+        for (let y = 0; y < BH; y++) for (let x = 0; x < BW; x++) {
+            const t = y / BH;
+            let c;
+            if (t < 0.22) c = dither(x, y, t / 0.22) ? 6 : 9;
+            else if (t < 0.62) c = dither(x, y, (t - 0.22) / 0.4) ? 8 : 6;
+            else c = dither(x, y, (t - 0.62) / 0.38 * 0.45) ? 0xc : 8;
+            sky.set(x, y, c);
+        }
+        // Wellen an der Oberfläche (Periode teilt 160 -> nahtlos)
+        for (let x = 0; x < BW; x++) {
+            const w = Math.round(1.5 + Math.sin(x * Math.PI * 2 / 20) * 1.2 + Math.sin(x * Math.PI * 2 / 32) * 0.8);
+            for (let y = 0; y <= w; y++) sky.set(x, y, y === w ? 1 : 9);
+        }
+        // Lichtstrahlen von oben
+        const nr = r.int(3, 5);
+        for (let k = 0; k < nr; k++) {
+            const x0 = Math.floor(k * BW / nr + r.int(0, 20)), w = r.int(4, 9), len = r.int(55, 80);
+            for (let y = 3; y < len; y++) for (let i = 0; i < w; i++) {
+                const x = x0 + i + Math.floor(y * 0.4);
+                if (!dither(x, y, 0.55 * (1 - y / len))) continue;
+                const c = sky.getWrap(x, y);
+                sky.setWrap(x, y, c === 8 ? 6 : c === 6 ? 9 : c === 0xc ? 8 : c);
+            }
+        }
+        for (let i = 0; i < 30; i++) sky.set(r.int(0, BW - 1), r.int(8, 100), 9); // Schwebeteilchen
+        // Felsenriff (ferne Ebene)
+        const m = fractal(r, BW, [4, 9, 17]);
+        for (let x = 0; x < BW; x++) {
+            const top = Math.round(66 + (1 - m(x)) * 34);
+            for (let y = top; y < BH; y++) {
+                let c = 0xc;
+                if (y < top + 2 && dither(x, y, 0.6)) c = 8;
+                if (y > 100 && dither(x, y, clamp01((y - 100) / 18))) c = 0xf;
+                far.set(x, y, c);
+            }
+        }
+        const np = r.int(2, 3); // Felssäulen
+        for (let k = 0; k < np; k++) {
+            const cx = Math.floor(k * BW / np + r.int(10, 40)), w = r.int(7, 11), top = r.int(34, 52);
+            for (let y = top; y < BH; y++) {
+                const ww = w + Math.round(Math.sin(y / 6 + k) * 1.5) + (y > 90 ? Math.floor((y - 90) / 4) : 0);
+                for (let i = 0; i < ww; i++) far.setWrap(cx + i - Math.floor(ww / 2), y, i === 0 && dither(cx + i, y, 0.6) ? 8 : 0xc);
+            }
+            for (let i = -Math.floor(w / 2) - 1; i <= Math.floor(w / 2) + 1; i++) far.setWrap(cx + i, top, dither(cx + i, top, 0.7) ? 8 : 0xc);
+        }
+        // Seetang, Korallen und Luftblasen (nahe Ebene)
+        const nk = r.int(5, 8);
+        for (let k = 0; k < nk; k++) {
+            const bx = Math.floor(k * BW / nk + r.int(0, 14)), h = r.int(36, 78), ph = r.next() * 6, c = r.pick([7, 6, 7]);
+            for (let y = BH - 1; y > BH - h; y--) {
+                const x = bx + Math.round(Math.sin((BH - y) / 9 + ph) * 2.2);
+                near.setWrap(x, y, c); near.setWrap(x + 1, y, DARK[c]);
+                if ((BH - y) % 7 === 3) { const s = (BH - y) % 14 === 3 ? -1 : 2; near.setWrap(x + s, y - 1, c); near.setWrap(x + s * 2 - (s > 0 ? 1 : 0), y - 2, c); }
+            }
+        }
+        const nc = r.int(3, 5);
+        for (let k = 0; k < nc; k++) {
+            const bx = Math.floor(k * BW / nc + r.int(4, 24)), c = r.pick([3, 2, 4, 0xa]), arms = r.int(3, 5);
+            for (let a = 0; a < arms; a++) {
+                const ax = bx + (a - Math.floor(arms / 2)) * 3, h = r.int(7, 14);
+                for (let y = 0; y < h; y++) near.setWrap(ax + (y > h / 2 ? Math.sign(a - arms / 2) : 0), BH - 4 - y, y > h - 3 ? LIGHT[c] : c);
+                near.setWrap(ax + 1, BH - 4 - Math.floor(h / 2), c);
+            }
+            near.rect(bx - arms * 2, BH - 4, arms * 4 + 1, 4, 0xb, true);
+            near.rect(bx - arms * 2, BH - 4, arms * 4 + 1, 1, 0xd, true);
+        }
+        const nb = r.int(3, 4);
+        for (let k = 0; k < nb; k++) {
+            const bx = r.int(0, BW - 1);
+            let y = BH - r.int(6, 20);
+            while (y > 12) { bubble(near, bx + r.int(-2, 2), y, r.pick([1, 1, 2, 3])); y -= r.int(9, 18); }
+        }
+        return { sky, far, near };
+    }
+
     function background(biome, seed) {
         const r = makeRand('bg:' + biome + ':' + seed);
+        if (biome === 'underwater') return bgUnderwater(r);
         if (biome === 'scifi') return bgScifi(r);
         if (biome === 'dungeon') return bgDungeon(r);
         return bgGrass(r);
@@ -448,8 +535,56 @@
         return { groundTop: top, ground: stone, platform: wood, spikes: spk, goal, deco };
     }
 
+    function tilesUnderwater(r) {
+        // Meeresboden: Sand mit Rippeln und Kieseln
+        const sand = new Pix(16, 16).rect(0, 0, 16, 16, 0xd);
+        for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) if ((y + Math.round(Math.sin(x / 2.5) * 1.2)) % 5 === 0 && dither(x, y, 0.7)) sand.set(x, y, 0xb);
+        speckle(sand, r, [0xb, 0xe, 1], 8);
+        const top = sand.clone();
+        for (let x = 0; x < 16; x++) {
+            const d = 1 + ((x * 5 + r.int(0, 1)) % 3 === 0 ? 1 : 0);
+            for (let y = 0; y < d; y++) top.set(x, y, dither(x, y, 0.5) ? 1 : 0xd);
+        }
+        const sx = r.int(2, 11), shell = r.pick([3, 4, 1]); // Muschel
+        top.rect(sx, 2, 3, 2, shell).set(sx + 1, 1, shell).set(sx + 1, 2, DARK[shell]).set(sx + 1, 3, LIGHT[shell]);
+        // Korallenblock als Plattform
+        const coral = new Pix(16, 16), cc = r.pick([3, 4, 0xa]);
+        coral.rect(0, 0, 16, 16, cc);
+        for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+            if (y === 0 && dither(x, y, 0.6)) coral.set(x, y, LIGHT[cc]);
+            if (y >= 13 && dither(x, y, (y - 12) / 4)) coral.set(x, y, DARK[cc]);
+        }
+        for (let i = 0; i < 7; i++) { const x = r.int(1, 13), y = r.int(2, 11); coral.set(x, y, DARK[cc]).set(x + 1, y, DARK[cc]).set(x, y - 1, LIGHT[cc]); }
+        // Seeigel
+        const spk = new Pix(16, 16);
+        for (let a = 180; a <= 360; a += 22.5) {
+            const rad = a * Math.PI / 180;
+            spk.line(8, 12, Math.round(8 + Math.cos(rad) * 7.5), Math.round(12 + Math.sin(rad) * 8.5), 0xf);
+        }
+        spk.circle(8, 12, 3.4, 0xa).circle(7, 11, 1.2, 3).set(9, 14, 0xc).set(10, 13, 0xc);
+        spk.rect(2, 15, 12, 1, 0xd);
+        // Ziel: Riesenmuschel mit Perle
+        const goal = new Pix(16, 16);
+        for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) {
+            const dx = x - 7.5;
+            if (y >= 10 && dx * dx / 56 + (y - 10) * (y - 10) / 30 <= 1) goal.set(x, y, Math.floor(Math.abs(dx)) % 3 === 0 ? 0xb : 0xd);
+            if (y <= 7 && y >= 1 && dx * dx / 50 + (y - 7) * (y - 7) / 40 <= 1) goal.set(x, y, Math.floor(Math.abs(dx)) % 3 === 0 ? 0xb : 3);
+        }
+        goal.rect(3, 8, 10, 2, 0xc).circle(7.5, 8.5, 2, 1).set(7, 8, 9).set(8, 9, 9).set(7, 7, 1);
+        goal.outline(0xf);
+        // Deko: Seetang-Büschel mit Blase
+        const deco = new Pix(16, 16);
+        for (let k = 0; k < 3; k++) {
+            const bx = 4 + k * 4 + r.int(-1, 1), h = r.int(6, 12), c = r.pick([7, 6]);
+            for (let y = 0; y < h; y++) deco.set(bx + Math.round(Math.sin(y / 2.5 + k) * 1), 15 - y, c);
+        }
+        deco.set(12, 3, 9).set(11, 4, 9).set(13, 4, 9).set(12, 5, 9).set(5, 1, 9);
+        return { groundTop: top, ground: sand, platform: coral, spikes: spk, goal, deco };
+    }
+
     function tileset(biome, seed) {
         const r = makeRand('tiles:' + biome + ':' + seed);
+        if (biome === 'underwater') return tilesUnderwater(r);
         if (biome === 'scifi') return tilesScifi(r);
         if (biome === 'dungeon') return tilesDungeon(r);
         return tilesGrass(r);
@@ -546,8 +681,10 @@
         bird: { name: 'Vogel', kind: 'flyer' },
         drone: { name: 'Drohne', kind: 'flyer' },
         bat: { name: 'Fledermaus', kind: 'flyer' },
+        crab: { name: 'Krabbe', kind: 'walker' },
+        fish: { name: 'Fisch', kind: 'flyer' },
     };
-    const BIOME_ENEMIES = { grass: ['slime', 'bird'], scifi: ['robot', 'drone'], dungeon: ['skeleton', 'bat'] };
+    const BIOME_ENEMIES = { grass: ['slime', 'bird'], scifi: ['robot', 'drone'], dungeon: ['skeleton', 'bat'], underwater: ['crab', 'fish'] };
 
     function eyes(p, x, y, big) {
         p.set(x, y, 1); p.set(x + 1, y, big ? 1 : 0xf); p.set(x + 1, y + 1, 0xf); p.set(x, y + 1, 1);
@@ -632,19 +769,114 @@
         return { walk, dead: dead.outline(0xf) };
     }
 
+    function enemyCrab(r) {
+        const c = r.pick([2, 2, 4, 0xa]);
+        const frame = (step, claw) => {
+            const p = new Pix(16, 16);
+            // Beine: je drei pro Seite, abwechselnd versetzt
+            for (let k = 0; k < 3; k++) {
+                const o = (k + step) % 2;
+                p.line(5 - k, 11, 3 - k - o, 14, DARK[c]); p.set(3 - k - o, 15, DARK[c]);
+                p.line(11 + k, 11, 13 + k + o, 14, DARK[c]); p.set(13 + k + o, 15, DARK[c]);
+            }
+            // Panzer
+            p.ellipse(8, 10, 5, 3, c);
+            p.rect(4, 12, 9, 1, DARK[c]);
+            p.set(6, 8, LIGHT[c]).set(7, 8, LIGHT[c]);
+            // Stielaugen
+            p.rect(6, 5, 1, 3, c).rect(10, 5, 1, 3, c);
+            p.set(6, 4, 1).set(10, 4, 1).set(6, 5, 0xf).set(10, 5, 0xf);
+            // Scheren
+            const cy = 6 - claw;
+            p.line(4, 9, 2, cy + 2, c); p.line(12, 9, 14, cy + 2, c);
+            p.circle(2, cy, 1.6, c).circle(14, cy, 1.6, c);
+            p.set(2, cy - 1, 0).set(14, cy - 1, 0).set(1, cy, LIGHT[c]).set(15, cy, LIGHT[c]);
+            return p.outline(0xf);
+        };
+        const dead = new Pix(16, 16);
+        dead.ellipse(8, 13, 5, 2, c).rect(4, 12, 9, 1, LIGHT[c]);
+        for (let k = 0; k < 3; k++) { dead.line(5 + k, 11, 4 + k * 2, 8, DARK[c]); dead.line(11 - k, 11, 12 - k * 2, 8, DARK[c]); }
+        dead.set(6, 13, 0xf).set(10, 13, 0xf);
+        return { walk: [frame(0, 0), frame(1, 1), frame(0, 0), frame(1, 1)], dead: dead.outline(0xf) };
+    }
+
+    function enemyFish(r) {
+        const c = r.pick([4, 5, 2, 3, 9]), stripe = r.pick([1, 0xf, DARK[c]]);
+        const body = (tail, flip) => {
+            const p = new Pix(16, 16);
+            p.ellipse(9, 8, 5, 3.4, c);
+            for (let x = 5; x <= 13; x++) { if (p.get(x, 10)) p.set(x, 10, LIGHT[c]); if (p.get(x, 11)) p.set(x, 11, LIGHT[c]); }
+            p.rect(8, 5, 1, 7, stripe).rect(6, 6, 1, 5, stripe);
+            for (let x = 7; x <= 11; x++) p.set(x, 4 - (x === 9 ? 1 : 0), DARK[c]); // Rückenflosse
+            p.set(9, 4, DARK[c]);
+            for (let i = 0; i < 3; i++) for (let dy = -i - 1; dy <= i + 1; dy++) p.set(3 - i, 8 + dy + (tail - 1), DARK[c]); // Schwanz
+            p.set(12, 7, 1).set(13, 7, 0xf).set(14, 9, 0xf);
+            p.set(10, 10, DARK[c]).set(9, 11, DARK[c]); // Brustflosse
+            if (flip) { const q = new Pix(16, 16); for (let y = 0; y < 16; y++) for (let x = 0; x < 16; x++) q.set(x, 15 - y, p.get(x, y)); return q; }
+            return p;
+        };
+        const walk = [0, 1, 2, 1].map(t => body(t, false).outline(0xf));
+        const dead = body(1, true);
+        dead.set(12, 8, 0xf).set(13, 8, 1);
+        return { walk, dead: dead.outline(0xf) };
+    }
+
     function enemy(type, seed) {
         const r = makeRand('enemy:' + type + ':' + seed);
-        const fn = { slime: enemySlime, robot: enemyRobot, skeleton: enemySkeleton, bird: enemyBird, drone: enemyDrone, bat: enemyBat }[type];
+        const fn = { slime: enemySlime, robot: enemyRobot, skeleton: enemySkeleton, bird: enemyBird, drone: enemyDrone, bat: enemyBat, crab: enemyCrab, fish: enemyFish }[type];
         return fn(r);
     }
 
     // =====================================================================
     //  BOSS (32x32): walk[2], hurt, attack
     // =====================================================================
-    const BOSS_TYPES = { golem: 'Stein-Golem', knight: 'Dunkler Ritter', mech: 'Kampf-Mech' };
+    const BOSS_TYPES = { golem: 'Stein-Golem', knight: 'Dunkler Ritter', mech: 'Kampf-Mech', kraken: 'Riesen-Krake' };
+
+    function bossKraken(r) {
+        const c = r.pick([0xa, 2, 3, 4]), eye = r.pick([5, 7, 9]);
+        const frame = (ph, attack) => {
+            const p = new Pix(32, 32);
+            // Tentakel
+            const bases = attack ? [11, 18] : [5, 11, 18, 24];
+            // hintere (dunkle) Tentakel zuerst, dann vordere
+            [1, 0].forEach(layer => bases.forEach((bx, k) => {
+                if (k % 2 !== layer) return;
+                const out = bx < 16 ? -1 : 1, col = layer ? DARK[c] : c;
+                for (let y = 16; y < 31; y++) {
+                    const w = y < 21 ? 4 : y < 26 ? 3 : 2;
+                    const x = bx + Math.round(Math.sin((y - 16) / 3.5 + ph + k) * 1.5) + (y > 26 ? out * (y - 26) : 0) - (w > 3 ? 1 : 0);
+                    p.rect(x, y, w, 1, col);
+                    if (y % 3 === 1 && y < 28) p.set(x + (out < 0 ? w - 1 : 0), y, LIGHT[c]);
+                }
+            }));
+            if (attack) { // zwei Fangarme nach oben gerissen
+                for (let y = 2; y < 20; y++) {
+                    const o = Math.round(Math.sin(y / 3) * 1.5);
+                    p.rect(3 + o + Math.floor((20 - y) / 6), y, 3, 1, c); p.rect(26 - o - Math.floor((20 - y) / 6), y, 3, 1, c);
+                    if (y % 3 === 0) { p.set(4 + o + Math.floor((20 - y) / 6), y, LIGHT[c]); p.set(27 - o - Math.floor((20 - y) / 6), y, LIGHT[c]); }
+                }
+            }
+            // Kopf
+            p.ellipse(16, 10, 10, 8, c);
+            for (let y = 2; y < 19; y++) for (let x = 6; x < 27; x++) if (p.get(x, y) === c && y > 14 && dither(x, y, 0.5)) p.set(x, y, DARK[c]);
+            p.circle(11, 5, 1.5, LIGHT[c]).set(20, 4, LIGHT[c]).set(22, 6, LIGHT[c]).set(13, 3, LIGHT[c]);
+            // Augen
+            [[10, 11], [19, 11]].forEach(([ex, ey]) => {
+                p.rect(ex, ey, 4, 3, 1).rect(ex + 1, ey + 1, 2, 2, eye).set(ex + 2, ey + 1, 0xf);
+                p.rect(ex - 1, ey - 1, 5, 1, 0xf);
+            });
+            p.rect(14, 15, 4, 1, 0xf);
+            return p.outline(0xf);
+        };
+        const walk = [frame(0, false), frame(1.6, false)];
+        const attack = frame(0.8, true);
+        const hurt = walk[0].clone().map(v => v && v !== 0xf ? 1 : v);
+        return { walk, attack, hurt };
+    }
 
     function boss(type, seed) {
         const r = makeRand('boss:' + type + ':' + seed);
+        if (type === 'kraken') return bossKraken(r);
         const eye = r.pick([2, 5, 9, 7]);
         const main = type === 'golem' ? r.pick([0xb, 0xe, 6]) : type === 'mech' ? r.pick([0xb, 8, 6]) : r.pick([0xc, 0xa, 8]);
         const horns = r.chance(0.7);
@@ -851,14 +1083,14 @@
 
     // Erweiterungen, die der Export optional einbinden kann (Name -> pxt.json-Abhängigkeit)
     const EXTENSIONS = {
-        pixelquest: { label: 'Pixel-Quest-Erweiterung', spec: 'github:theodorthg/pxt-pixelquest#v0.2.0' },
+        pixelquest: { label: 'Pixel-Quest-Erweiterung', spec: 'github:theodorthg/pxt-pixelquest#v0.3.0' },
     };
 
     // =====================================================================
     //  PIXEL-QUEST: Asset-Namen, Markierungs-Kacheln, Text-Level
     // =====================================================================
-    const PQ_STYLES = ['grass', 'scifi', 'dungeon'];
-    const PQ_STYLE_ENUM = ['Grass', 'SciFi', 'Dungeon'];
+    const PQ_STYLES = ['grass', 'scifi', 'dungeon', 'underwater'];
+    const PQ_STYLE_ENUM = ['Grass', 'SciFi', 'Dungeon', 'Underwater'];
     const PQ_MARKERS = ['pqStart', 'pqCoin', 'pqGem', 'pqHeart', 'pqChest', 'pqChestHeart', 'pqWalker', 'pqFlyer', 'pqBoss', 'pqGate'];
     const PQ_MARKER_CHARS = 'PcghCHefBX';   // Zeichen in Text-Leveln, gleiche Reihenfolge wie PQ_MARKERS
 
