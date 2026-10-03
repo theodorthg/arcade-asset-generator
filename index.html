@@ -46,6 +46,9 @@
     :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 700; }
     .spacer { flex: 1; }
+    .toolbar.worlds { margin-top: 0; border-top: 0; padding-top: 0; }
+    .worlds-title { font: 500 13px/1 var(--display); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+    #worldsHint { flex-basis: 100%; }
     nav.tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-block: 16px 12px; }
     nav.tabs button { font: 500 15px/1 var(--display); padding: 8px 14px; border-radius: 4px; }
     nav.tabs button[aria-selected=true] { background: var(--ink); color: var(--ground); border-color: var(--ink); }
@@ -109,6 +112,14 @@
         <label for="withPixelquest" title="Spielbares Pixel-Quest-Projekt: Erweiterung, Assets unter den Namen der Engine, Markierungs-Kacheln und eine Beispielwelt im Tilemap-Editor."><input type="checkbox" id="withPixelquest" checked> als Pixel-Quest-Spiel</label>
         <button class="primary" id="exportProject">Als MakeCode-Projekt speichern</button>
     </div>
+    <div class="toolbar worlds" id="worldsBar">
+        <span class="worlds-title">Welten im Spiel</span>
+        <label for="world1">Welt 1 <select id="world1"></select></label>
+        <label for="world2">Welt 2 <select id="world2"></select></label>
+        <label for="world3">Welt 3 <select id="world3"></select></label>
+        <label for="bossInLast" title="Die letzte selbst erzeugte Welt endet mit Tor und Endboss (Typ aus dem Boss-Tab)."><input type="checkbox" id="bossInLast" checked> Endboss in der letzten Welt</label>
+        <span class="hint" id="worldsHint"></span>
+    </div>
 
     <nav class="tabs" id="tabs" aria-label="Kategorien"></nav>
 
@@ -160,6 +171,32 @@
     // ---------- Aufbau
     for (let c = 1; c < 16; c++) { const s = document.createElement('span'); s.style.background = G.PALETTE[c]; s.textContent = G.HEX[c]; s.title = G.COLOR_NAMES[c]; $('palette').appendChild(s); }
     for (const k in G.BIOMES) $('biome').add(new Option(G.BIOMES[k].name + ' – ' + G.BIOMES[k].mood, k));
+    ['world1', 'world2', 'world3'].forEach((id, i) => {
+        if (i > 0) $(id).add(new Option('Vorrat der Engine', ''));
+        for (const k in G.BIOMES) $(id).add(new Option(G.BIOMES[k].name, k));
+        $(id).onchange = updateWorlds;
+    });
+    $('withPixelquest').onchange = updateWorlds;
+    // Welt 1 folgt dem gewählten Biom; Welt 3 braucht eine eigene Welt 2.
+    function chosenWorlds() {
+        const w = [$('world1').value];
+        if ($('world2').value) { w.push($('world2').value); if ($('world3').value) w.push($('world3').value); }
+        return w;
+    }
+    function updateWorlds() {
+        const pq = $('withPixelquest').checked;
+        $('worldsBar').hidden = !pq;
+        $('world3').disabled = !$('world2').value;
+        if (!$('world2').value) $('world3').value = '';
+        const w = chosenWorlds();
+        $('bossInLast').disabled = w.length < 2;
+        $('worldsHint').textContent = w.length === 1
+            ? 'Welt 1 wird erzeugt, Welt 2 und 3 nimmt die Engine aus ihrem eingebauten Vorrat (mit Endboss in Welt 3).'
+            : w.length === 2
+                ? 'Welt 1 und 2 werden erzeugt, Welt 3 kommt aus dem Vorrat der Engine (mit Endboss).'
+                : 'Alle drei Welten werden erzeugt, jede schwieriger als die vorige' + ($('bossInLast').checked ? ', Welt 3 mit Endboss.' : '.');
+    }
+    $('bossInLast').onchange = updateWorlds;
     for (const k in TABS) {
         const b = document.createElement('button');
         b.textContent = TABS[k]; b.dataset.tab = k; b.id = 'tab-' + k;
@@ -172,7 +209,7 @@
         if (state.tab === 'char') state.char = G.randomCharacter(state.seed);
         state.sfx = null; render();
     };
-    $('biome').onchange = e => { state.biome = e.target.value; state.enemy = G.BIOME_ENEMIES[state.biome][0]; render(); };
+    $('biome').onchange = e => { state.biome = e.target.value; state.enemy = G.BIOME_ENEMIES[state.biome][0]; $('world1').value = state.biome; updateWorlds(); render(); };
     $('zoom').oninput = e => { state.zoom = +e.target.value; render(); };
     $('copy').onclick = copyCode;
     $('png').onclick = showPng;
@@ -592,8 +629,10 @@
     async function exportProject() {
         const extensions = $('withPixelquest').checked ? { pixelquest: G.EXTENSIONS.pixelquest.spec } : {};
         const pq = $('withPixelquest').checked;
+        const worlds = pq ? chosenWorlds() : null;
         const p = G.makecodeProject({ seed: state.seed, biome: state.biome, char: state.char, boss: state.boss, pixelquest: pq,
-            name: (pq ? 'pixel-quest-' : 'pixel-assets-') + state.biome + '-' + state.seed, extensions });
+            worlds, bossInLast: $('bossInLast').checked,
+            name: (pq ? 'pixel-quest-' + worlds.join('-') : 'pixel-assets-' + state.biome) + '-' + state.seed, extensions });
         // PNG mit eingebettetem Projekt: im Claude-Artifact erlaubt und von MakeCode direkt importierbar
         const fileName = p.name + '.png';
         renderProjectInfo(p, fileName);
@@ -609,8 +648,8 @@
             '<li>Die gespeicherte Datei <code>' + fileName + '</code> auswählen – das Bild enthält das ganze Projekt, es entsteht ein neues Projekt mit Demo-Level.</li>' +
             '<li>Alle Grafiken stehen im Tab <strong>Assets</strong> und in jedem Bild-Block unter <strong>Meine Assets</strong> zur Auswahl.</li>' +
             ($('withPixelquest').checked ? '<li>Die <strong>Pixel-Quest-Erweiterung</strong> wird beim Öffnen automatisch geladen. Das Spiel startet sofort; ' +
-                'die Welt <code>welt1</code> bearbeitest du im Tilemap-Editor (Block „Welt 1 Karte …“). Spielobjekte setzt du mit den Kacheln ' +
-                '<code>pqStart</code>, <code>pqCoin</code>, <code>pqWalker</code> … – Welten 2 und 3 nimmt die Engine aus ihrem Vorrat.</li>' : '') + '</ol>' +
+                'die Welten ' + p.names.tilemaps.map(n => '<code>' + n + '</code>').join(', ') + ' bearbeitest du im Tilemap-Editor (Blöcke „Welt … Karte …“). Spielobjekte setzt du mit den Kacheln ' +
+                '<code>pqStart</code>, <code>pqCoin</code>, <code>pqWalker</code> …' + (p.names.tilemaps.length < 3 ? ' – die übrigen Welten bis 3 nimmt die Engine aus ihrem Vorrat.' : '') + '</li>' : '') + '</ol>' +
             '<p class="hint">Startet kein Download (z. B. in einer eingebetteten Vorschau), die Seite direkt öffnen: ' +
             '<a href="https://theodorthg.github.io/arcade-asset-generator/" target="_blank" rel="noopener">theodorthg.github.io/arcade-asset-generator</a></p>' +
             list('Bilder', p.names.images, n => 'assets.image' + tick + n + tick) +
@@ -620,6 +659,8 @@
         $('sheet').scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
+    $('world1').value = state.biome;
+    updateWorlds();
     const hash = location.hash.slice(1);
     if (TABS[hash]) state.tab = hash;
     render();

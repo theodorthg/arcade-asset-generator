@@ -1862,7 +1862,7 @@
 
     // Erweiterungen, die der Export optional einbinden kann (Name -> pxt.json-Abhängigkeit)
     const EXTENSIONS = {
-        pixelquest: { label: 'Pixel-Quest-Erweiterung', spec: 'github:theodorthg/pxt-pixelquest#v0.5.0' },
+        pixelquest: { label: 'Pixel-Quest-Erweiterung', spec: 'github:theodorthg/pxt-pixelquest#v0.5.1' },
     };
 
     // =====================================================================
@@ -1959,8 +1959,62 @@
     }
 
     /**
+     * Zufällige Welt im Text-Level-Format (Legende wie asciiLevel), Schwierigkeit steigt mit index.
+     * withBoss: am Ende eine Boss-Arena mit Tor (X) und Endboss (B) statt Ziel (G).
+     */
+    function generateWorldRows(seed, index, total, withBoss) {
+        const r = makeRand('world:' + seed + ':' + index);
+        const d = total > 1 ? index / (total - 1) : 0;          // 0 = leicht … 1 = schwer
+        const H = 10, arena = withBoss ? 30 : 0, W = 64 + index * 18 + arena;
+        const g = Array.from({ length: H }, () => Array(W).fill('.'));
+        const put = (ch, row, col) => { if (col > 0 && col < W - 1 && g[row][col] === '.') g[row][col] = ch; };
+        for (let x = 0; x < W; x++) { g[8][x] = '#'; g[9][x] = '#'; }
+        for (let y = 0; y < H; y++) { g[y][0] = '#'; g[y][W - 1] = '#'; }
+        put('P', 7, 2); put('d', 7, 4);
+        const end = W - 1 - (withBoss ? arena : 5);
+        let x = 7, heart = false;
+        while (x < end - 4) {
+            const f = r.next();
+            if (f < 0.22 + d * 0.12) {                     // Grube mit Münzen darüber
+                const w = Math.min(end - x - 2, r.chance(0.3 + d * 0.5) ? 3 : 2);
+                for (let i = 0; i < w; i++) { g[8][x + i] = '.'; g[9][x + i] = '.'; put('c', 5, x + i); }
+                if (w === 3 && r.chance(0.5)) for (let i = 0; i < 3; i++) g[4][x + i] = '=';
+                x += w + r.int(2, 3);
+            } else if (f < 0.45) {                          // Plattformen mit Münzen, oben ein Edelstein
+                const w = r.int(3, 4), row = r.pick([5, 6]);
+                for (let i = 0; i < w; i++) { g[row][x + i] = '='; put('c', row - 1, x + i); }
+                if (r.chance(0.4)) { const x2 = x + w + 1; for (let i = 0; i < 3; i++) g[row - 3][x2 + i] = '='; put('g', row - 4, x2 + 1); }
+                if (r.chance(0.3 + d * 0.3)) put('e', 7, x + 1);
+                x += w + r.int(3, 5);
+            } else if (f < 0.62) {                          // Gegner am Boden
+                put('e', 7, x); if (r.chance(d * 0.6)) put('e', 7, x + 3);
+                put('c', 7, x + 1); x += r.int(4, 6);
+            } else if (f < 0.72 + d * 0.08) {               // Stacheln
+                const w = r.chance(0.3 + d * 0.4) ? 2 : 1;
+                for (let i = 0; i < w; i++) put('^', 7, x + i);
+                put('c', 5, x); x += w + r.int(3, 4);
+            } else if (f < 0.84) {                          // Flieger
+                put('f', r.int(3, 5), x + 1); put('c', 7, x); put('c', 7, x + 1); x += r.int(4, 6);
+            } else if (f < 0.93) {                          // Truhe
+                put(!heart && r.chance(0.4) ? (heart = true, 'H') : 'C', 7, x); put('d', 7, x + 2); x += r.int(4, 5);
+            } else { put('c', 7, x); put('c', 7, x + 1); put('c', 7, x + 2); x += 5; }
+        }
+        if (withBoss) {
+            const a = W - 1 - arena;
+            put('H', 7, a - 2);
+            put('X', 1, a + 4);                               // Tor schließt sich hinter dem Spieler
+            for (let i = 0; i < 3; i++) { g[5][a + 11 + i] = '='; g[5][a + 21 + i] = '='; }
+            put('B', 6, W - 9);
+            put('d', 7, a + 1); put('d', 7, W - 3);
+        } else put('G', 7, W - 3);
+        return g.map(row => row.join(''));
+    }
+
+    /**
      * Baut ein MakeCode-Arcade-Projekt mit allen Assets eines Biom/Seed-Sets.
      * opts.pixelquest = true: Pixel-Quest-Projekt (Asset-Namen der Engine, Markierungs-Kacheln, Beispielwelt „welt1“)
+     *   opts.worlds = ['grass', 'ice', …]: eine Welt je Biom (welt1, welt2, …), sonst nur welt1 im Biom opts.biome.
+     *   opts.bossInLast = true: bei mehreren Welten endet die letzte mit Boss-Arena.
      * Rückgabe: { files, mkcd, name, names }
      */
     function makecodeProject(opts) {
@@ -1969,14 +2023,18 @@
         const name = opts.name || ('assets-' + biome + '-' + seed);
         let spec, mainTs;
         if (opts.pixelquest) {
-            spec = pixelquestAssets({ styles: [{ style: biome, seed }], char: opts.char, bossType: opts.boss || 'knight', bossSeed: seed, itemSeed: seed, enemySeed: seed });
-            spec.tilemaps = [asciiLevel('welt1', exampleWorldRows(), biome)];
-            mainTs = [
-                `pixelquest.setWorld(1, tilemap\`welt1\`, pixelquest.Style.${PQ_STYLE_ENUM[PQ_STYLES.indexOf(biome)]})`,
+            const worlds = opts.worlds && opts.worlds.length ? opts.worlds : null;
+            const used = worlds ? worlds.filter((b, i) => worlds.indexOf(b) === i) : [biome];
+            spec = pixelquestAssets({ styles: used.map(style => ({ style, seed })), char: opts.char, bossType: opts.boss || 'knight', bossSeed: seed, itemSeed: seed, enemySeed: seed });
+            spec.tilemaps = worlds
+                ? worlds.map((b, i) => asciiLevel('welt' + (i + 1), generateWorldRows(seed, i, worlds.length, !!opts.bossInLast && worlds.length > 1 && i === worlds.length - 1), b))
+                : [asciiLevel('welt1', exampleWorldRows(), biome)];
+            mainTs = (worlds || [biome]).map((b, i) =>
+                `pixelquest.setWorld(${i + 1}, tilemap\`welt${i + 1}\`, pixelquest.Style.${PQ_STYLE_ENUM[PQ_STYLES.indexOf(b)]})`).concat([
                 'pixelquest.setLives(3)',
                 'pixelquest.startGame()',
                 '',
-            ].join('\n');
+            ]).join('\n');
         } else {
             const bg = background(biome, seed), t = tileset(biome, seed), ch = character(opts.char || {});
             const it = items(seed), bo = boss(opts.boss || 'golem', seed);
@@ -2058,7 +2116,7 @@
     const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
 
     return {
-        makecodeProject, buildAssetFiles, pixelquestAssets, markers, asciiLevel, exampleWorldRows,
+        makecodeProject, buildAssetFiles, pixelquestAssets, markers, asciiLevel, exampleWorldRows, generateWorldRows,
         PQ_STYLES, PQ_STYLE_ENUM, PQ_MARKERS, PQ_MARKER_CHARS, f4Bytes, EXTENSIONS,
         PALETTE, COLOR_NAMES, HEX, DARK, LIGHT, Pix, makeRand, hashSeed,
         BIOMES, ENEMY_TYPES, BIOME_ENEMIES, BOSS_TYPES, HAIR_STYLES, HATS, CHAR_DEFAULTS,
